@@ -42,6 +42,60 @@
 <main class="page">
 
   {# ==================================================================== #}
+  {# Live Status — real-time watcher                                       #}
+  {# ==================================================================== #}
+  <section class="live live-{{ live.state }}" id="live-section" data-target="{{ live.target }}">
+    <div class="live-led">
+      <span class="led led-{{ live.state }}"></span>
+    </div>
+    <div class="live-body">
+      <div class="live-kicker">
+        Real-time reachability · probed every ~30s · independent of the deep scan below
+      </div>
+      <div class="live-head">
+        <span class="live-state" id="live-state-label">{{ {'up':'REACHABLE', 'slow':'SLOW', 'down':'UNREACHABLE', 'unknown':'CHECKING…'}[live.state] }}</span>
+        <span class="live-meta">
+          <span id="live-status">HTTP {{ live.last_status or '—' }}</span>
+          ·
+          <span id="live-rt">{{ live.last_response_ms or '—' }} ms</span>
+          ·
+          <span class="muted">uptime 24h <strong id="live-uptime">{{ live.uptime_24h_pct or '—' }}%</strong></span>
+          ·
+          <span class="muted">probed <span id="live-ago">…</span></span>
+        </span>
+      </div>
+      <div class="live-spark">
+        <svg id="spark" viewBox="0 0 600 32" preserveAspectRatio="none" aria-hidden="true">
+          <g id="spark-bars"></g>
+        </svg>
+        <div class="live-spark-legend muted small">
+          last {{ live.pings|length }} probes — green = reachable, amber = slow, red = unreachable
+        </div>
+      </div>
+    </div>
+    <div class="live-actions">
+      <button class="btn btn-ghost btn-sm" type="button" id="enable-notif">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+        Enable alerts
+      </button>
+    </div>
+  </section>
+
+  {# Recent state-change toasts (live alerts feed) #}
+  <section id="live-alerts" class="live-alerts {% if not live.alerts %}hidden{% endif %}">
+    {% for a in live.alerts[:5] %}
+      <div class="live-alert live-alert-{{ a.severity }}">
+        <span class="live-alert-dot"></span>
+        <span class="mono small">{{ a.url }}</span>
+        <span class="tag tag-{% if a.severity == 'critical' %}critical{% elif a.severity == 'warn' %}warn{% else %}ok{% endif %}">
+          {{ a.from }} → {{ a.to }}
+        </span>
+        <span class="muted small">{{ a.message }}</span>
+      </div>
+    {% endfor %}
+  </section>
+
+  {# ==================================================================== #}
   {# Hero — target + run controls                                          #}
   {# ==================================================================== #}
   <section class="hero">
@@ -603,6 +657,144 @@
     el.textContent = s;
     el.title = then.toLocaleString();
   })();
+
+  // ====================================================================
+  // Live Status — poll /api/uptime, redraw sparkline, fire notifications
+  // ====================================================================
+  const liveSection = document.getElementById("live-section");
+  const sparkG      = document.getElementById("spark-bars");
+  const stateLabel  = document.getElementById("live-state-label");
+  const statusEl    = document.getElementById("live-status");
+  const rtEl        = document.getElementById("live-rt");
+  const uptimeEl    = document.getElementById("live-uptime");
+  const agoEl       = document.getElementById("live-ago");
+  const alertsBox   = document.getElementById("live-alerts");
+  const notifBtn    = document.getElementById("enable-notif");
+
+  let knownAlertIds = new Set();
+  let lastLiveState = liveSection.dataset.lastState || "{{ live.state }}";
+
+  function fmtAgo(unixTs) {
+    if (!unixTs) return "—";
+    const diff = Math.max(0, Math.floor(Date.now()/1000 - unixTs));
+    if (diff < 60)   return diff + "s ago";
+    if (diff < 3600) return Math.floor(diff/60) + "m ago";
+    return Math.floor(diff/3600) + "h ago";
+  }
+
+  function drawSparkline(pings) {
+    sparkG.innerHTML = "";
+    if (!pings.length) return;
+    // Show up to 60 bars across the 600-wide viewBox.
+    const N = Math.min(pings.length, 60);
+    const start = pings.length - N;
+    const barW = 600 / N;
+    const colors = { up: "#10b981", slow: "#f59e0b", down: "#ef4444", unknown: "#cbd5e1" };
+    // Bar height = scaled response_ms (cap at 5000ms = full height).
+    for (let i = 0; i < N; i++) {
+      const p = pings[start + i];
+      const ms = Math.max(p.response_ms || 0, 80);
+      const h = Math.min(32, 3 + Math.round((ms / 5000) * 32));
+      const x = i * barW;
+      const y = 32 - h;
+      const r = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+      r.setAttribute("x", x.toFixed(2));
+      r.setAttribute("y", y.toFixed(2));
+      r.setAttribute("width", Math.max(1, barW - 1).toFixed(2));
+      r.setAttribute("height", h.toFixed(2));
+      r.setAttribute("fill", colors[p.state] || "#cbd5e1");
+      r.setAttribute("rx", "1");
+      const title = document.createElementNS("http://www.w3.org/2000/svg", "title");
+      const when = new Date(p.ts * 1000).toLocaleTimeString();
+      title.textContent = `${when} · ${p.state.toUpperCase()} · HTTP ${p.status ?? "—"} · ${p.response_ms ?? "—"} ms`;
+      r.appendChild(title);
+      sparkG.appendChild(r);
+    }
+  }
+
+  function renderAlerts(alerts) {
+    if (!alerts.length) { alertsBox.classList.add("hidden"); return; }
+    alertsBox.classList.remove("hidden");
+    alertsBox.innerHTML = "";
+    for (const a of alerts.slice(0, 5)) {
+      const div = document.createElement("div");
+      div.className = "live-alert live-alert-" + a.severity;
+      const tagCls = a.severity === "critical" ? "tag-critical" : a.severity === "warn" ? "tag-warn" : "tag-ok";
+      div.innerHTML = `
+        <span class="live-alert-dot"></span>
+        <span class="mono small">${a.url}</span>
+        <span class="tag ${tagCls}">${a.from} → ${a.to}</span>
+        <span class="muted small">${a.message}</span>
+        <span class="muted small" style="margin-left:auto">${fmtAgo(a.ts)}</span>
+      `;
+      alertsBox.appendChild(div);
+    }
+  }
+
+  function maybeNotify(alerts) {
+    if (Notification.permission !== "granted") return;
+    for (const a of alerts) {
+      const id = `${a.ts}-${a.url}-${a.to}`;
+      if (knownAlertIds.has(id)) continue;
+      knownAlertIds.add(id);
+      // Skip alerts that existed on initial page load — only notify on NEW ones.
+      if (!window.__liveBooted) continue;
+      const title = a.severity === "critical" ? "🔴 Site DOWN"
+                  : a.severity === "warn"     ? "🟠 Site SLOW"
+                  : a.severity === "recovery" ? "🟢 Site recovered"
+                  : "BT Monitor";
+      new Notification(title, { body: `${a.url}\n${a.message}`, requireInteraction: a.severity === "critical" });
+    }
+  }
+
+  async function pollLive() {
+    try {
+      const r = await fetch("/api/uptime", { cache: "no-store" });
+      const s = await r.json();
+      const stateText = {up:"REACHABLE", slow:"SLOW", down:"UNREACHABLE", unknown:"CHECKING…"}[s.state || "unknown"] || (s.state || "unknown").toUpperCase();
+      stateLabel.textContent = stateText;
+      statusEl.textContent   = "HTTP " + (s.last_status ?? "—");
+      rtEl.textContent       = (s.last_response_ms ?? "—") + " ms";
+      uptimeEl.textContent   = (s.uptime_24h_pct ?? "—") + "%";
+      agoEl.textContent      = fmtAgo(s.last_seen_ts);
+      // Recolor section + LED.
+      liveSection.className  = "live live-" + (s.state || "unknown");
+      drawSparkline(s.pings || []);
+      renderAlerts(s.alerts || []);
+      maybeNotify(s.alerts || []);
+      lastLiveState = s.state;
+    } catch (e) {
+      // network blip — try again
+    }
+    setTimeout(pollLive, 5000);
+  }
+
+  // Seed sparkline from server-rendered data on first paint.
+  drawSparkline({{ live.pings | tojson }});
+  agoEl.textContent = fmtAgo({{ live.last_seen_ts }});
+  // Capture existing alert IDs so we don't notify the user about history.
+  for (const a of {{ live.alerts | tojson }}) {
+    knownAlertIds.add(`${a.ts}-${a.url}-${a.to}`);
+  }
+  window.__liveBooted = true;
+  pollLive();
+
+  notifBtn?.addEventListener("click", async () => {
+    if (!("Notification" in window)) {
+      alert("Browser doesn't support desktop notifications.");
+      return;
+    }
+    const perm = await Notification.requestPermission();
+    if (perm === "granted") {
+      notifBtn.textContent = "Alerts on";
+      notifBtn.disabled = true;
+      new Notification("BT Monitor alerts enabled", { body: "You'll get a popup if the site goes down or slow." });
+    }
+  });
+  if (Notification && Notification.permission === "granted") {
+    notifBtn.textContent = "Alerts on";
+    notifBtn.disabled = true;
+  }
 </script>
 
 </body>

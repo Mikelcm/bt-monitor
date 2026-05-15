@@ -2,14 +2,17 @@
 
 Endpoints:
     GET  /                  -> main dashboard HTML
-    POST /run               -> kick off a full run (runner.py as subprocess)
-    POST /target            -> change the target URL (persists to data/_target.json)
+    POST /run               -> kick off a full deep scan (runner.py subprocess)
+    POST /target            -> change the target URL (persists + retargets watcher)
     POST /clear             -> wipe last run's reports
-    GET  /api/state         -> current run state (idle / running / done)
-    GET  /api/reports       -> JSON dump of every report
+    GET  /api/state         -> deep-scan run state
+    GET  /api/reports       -> JSON dump of every deep-scan report
+    GET  /api/uptime        -> live watcher state (recent pings, uptime %, alerts)
 
-Each run launches `runner.py` as a fresh subprocess. That way changing the
-target URL takes effect on the very next run — no service restart needed.
+A background watcher (monitoring.watcher.Watcher) is started in the FastAPI
+lifespan and probes the configured target every ~30s, recording state and
+firing alerts on state changes. When the target URL is changed via /target,
+the watcher is retargeted live — no restart needed.
 """
 from __future__ import annotations
 
@@ -17,6 +20,7 @@ import asyncio
 import json
 import os
 import sys
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, Form, Request
@@ -36,18 +40,47 @@ from config import (
     DATA_DIR, get_base_url, set_base_url, get_recent_targets,
 )
 from runner import read_state, build_summary
+from monitoring.store import UptimeStore
+from monitoring.alerts import AlertHub
+from monitoring.watcher import Watcher
 
 DATA = ROOT / DATA_DIR
 DASH_DIR = ROOT / "dashboard"
 
-app = FastAPI(title="BT Monitor Dashboard")
+# ---------------------------------------------------------------------
+# global singletons (one per process)
+# ---------------------------------------------------------------------
+_store = UptimeStore()
+_alerts = AlertHub()
+_watcher = Watcher(store=_store, alerts=_alerts)
+_watcher_task: asyncio.Task | None = None
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Start the watcher when the dashboard boots, stop on shutdown."""
+    global _watcher_task
+    _watcher.set_targets([get_base_url()])
+    _watcher_task = asyncio.create_task(_watcher.run_forever())
+    try:
+        yield
+    finally:
+        await _watcher.stop()
+        if _watcher_task:
+            try:
+                await asyncio.wait_for(_watcher_task, timeout=5)
+            except asyncio.TimeoutError:
+                _watcher_task.cancel()
+
+
+app = FastAPI(title="BT Monitor Dashboard", lifespan=lifespan)
 templates = Jinja2Templates(directory=str(DASH_DIR / "templates"))
 app.mount("/static", StaticFiles(directory=str(DASH_DIR / "static")), name="static")
 
-_run_proc: asyncio.subprocess.Process | None = None
-_run_lock = asyncio.Lock()
 
-
+# ---------------------------------------------------------------------
+# helpers
+# ---------------------------------------------------------------------
 def _load_json(name: str) -> dict | None:
     p = DATA / name
     if not p.exists():
@@ -59,16 +92,19 @@ def _load_json(name: str) -> dict | None:
 
 
 REPORT_FILES = {
-    "sitemap": "sitemap_pages.json",
-    "links": "links_report.json",
+    "sitemap":     "sitemap_pages.json",
+    "links":       "links_report.json",
     "performance": "performance_report.json",
-    "assets": "assets_report.json",
-    "forms": "forms_report.json",
-    "docs": "docs_report.json",
-    "visual": "visual_report.json",
+    "assets":      "assets_report.json",
+    "forms":       "forms_report.json",
+    "docs":        "docs_report.json",
+    "visual":      "visual_report.json",
 }
 
 
+# ---------------------------------------------------------------------
+# pages
+# ---------------------------------------------------------------------
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request):
     base_url = get_base_url()
@@ -76,7 +112,8 @@ async def index(request: Request):
     state = read_state()
     reports = {k: _load_json(v) for k, v in REPORT_FILES.items()}
     recent = get_recent_targets()
-    # Top-level critical issues for the alert banner.
+
+    # critical issues for the alert banner
     criticals = []
     if summary.get("doc_leaks", 0) > 0 and reports.get("docs"):
         for d in reports["docs"].get("docs", []):
@@ -87,6 +124,10 @@ async def index(request: Request):
                     "url": d["url"],
                     "detail": ", ".join(m["marker"] for m in d["markers_found"][:3]),
                 })
+
+    # live watcher snapshot
+    live = _live_snapshot(base_url)
+
     return templates.TemplateResponse(
         request=request,
         name="index.html",
@@ -97,33 +138,57 @@ async def index(request: Request):
             "reports": reports,
             "recent_targets": recent,
             "criticals": criticals,
+            "live": live,
             "has_data": bool(summary.get("pages")) and summary.get("base_url") == base_url,
             "stale_data": bool(summary.get("pages")) and summary.get("base_url") != base_url,
         },
     )
 
 
+def _live_snapshot(base_url: str) -> dict:
+    """Snapshot used to render the Live Status section + JSON endpoint."""
+    target_state = _watcher.targets.get(base_url.rstrip("/"))
+    pings = _store.recent_pings(base_url.rstrip("/"), limit=120)
+    uptime_24h = _store.uptime_percent(base_url.rstrip("/"))
+    alerts = [
+        {
+            "ts": e.ts, "url": e.url, "from": e.from_state, "to": e.to_state,
+            "message": e.message, "severity": e.severity,
+            "status": e.status, "response_ms": e.response_ms,
+        }
+        for e in _alerts.recent()
+    ]
+    return {
+        "target": base_url,
+        "state": (target_state.current_state if target_state else "unknown"),
+        "last_status": (target_state.last_status if target_state else None),
+        "last_response_ms": (target_state.last_response_ms if target_state else None),
+        "last_seen_ts": (target_state.last_seen_ts if target_state else 0),
+        "last_error": (target_state.last_error if target_state else None),
+        "pings": pings,
+        "uptime_24h_pct": uptime_24h,
+        "alerts": alerts,
+    }
+
+
+# ---------------------------------------------------------------------
+# deep-scan run controls (existing)
+# ---------------------------------------------------------------------
 async def _run_subprocess():
-    """Launch runner.py as a fresh subprocess, stream output to data/_run.log."""
-    global _run_proc
     log_path = DATA / "_run.log"
     log_path.parent.mkdir(parents=True, exist_ok=True)
     log_file = log_path.open("w", encoding="utf-8")
     env = os.environ.copy()
-    # PYTHONIOENCODING ensures the child writes UTF-8 to its stdout/stderr.
     env.setdefault("PYTHONIOENCODING", "utf-8")
     try:
-        _run_proc = await asyncio.create_subprocess_exec(
+        proc = await asyncio.create_subprocess_exec(
             sys.executable, str(ROOT / "runner.py"),
-            cwd=str(ROOT),
-            env=env,
-            stdout=log_file,
-            stderr=asyncio.subprocess.STDOUT,
+            cwd=str(ROOT), env=env,
+            stdout=log_file, stderr=asyncio.subprocess.STDOUT,
         )
-        await _run_proc.wait()
+        await proc.wait()
     finally:
         log_file.close()
-        _run_proc = None
 
 
 @app.post("/run")
@@ -140,11 +205,11 @@ async def change_target(url: str = Form(...), run_after: str | None = Form(None)
     url = url.strip()
     if not url:
         return RedirectResponse(url="/", status_code=303)
-    # Light normalization — let users paste "example.com" without scheme.
     if not url.startswith(("http://", "https://")):
         url = "https://" + url
     set_base_url(url)
-    # Optional: kick off a run right after switching.
+    # Retarget the live watcher immediately.
+    _watcher.set_targets([get_base_url()])
     if run_after:
         state = read_state()
         if state.get("status") != "running":
@@ -165,6 +230,9 @@ async def clear_reports():
     return RedirectResponse(url="/", status_code=303)
 
 
+# ---------------------------------------------------------------------
+# JSON APIs
+# ---------------------------------------------------------------------
 @app.get("/api/state")
 async def api_state():
     return read_state()
@@ -176,6 +244,11 @@ async def api_reports():
         "summary": _load_json("summary.json"),
         **{k: _load_json(v) for k, v in REPORT_FILES.items()},
     }
+
+
+@app.get("/api/uptime")
+async def api_uptime():
+    return _live_snapshot(get_base_url())
 
 
 if __name__ == "__main__":
