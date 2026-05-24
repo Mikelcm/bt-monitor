@@ -120,8 +120,131 @@ code {
 .page {
   max-width: 1280px;
   margin: 0 auto;
-  padding: 32px 32px 56px;
+  padding: 28px 32px 56px;
 }
+
+/* =====================================================================
+   Major blocks — A (Live) and B (Deep Scan)
+   ===================================================================== */
+.block {
+  margin-bottom: 32px;
+  border-radius: var(--radius-lg);
+  position: relative;
+}
+.block-live {
+  background: linear-gradient(180deg, #f0f9ff 0%, #f8fafc 60%);
+  padding: 24px 24px 8px;
+  border: 1px solid #e0f2fe;
+  box-shadow: 0 1px 3px rgba(14, 165, 233, .05);
+}
+.block-scan {
+  /* No background — pure surface; categories sit on white */
+  padding: 0;
+}
+.block-header {
+  margin-bottom: 18px;
+  padding: 0 0 16px;
+  border-bottom: 1px solid var(--border);
+}
+.block-live .block-header { border-bottom-color: #bae6fd; }
+.block-scan .block-header { padding: 8px 0 18px; border-bottom: 1px solid var(--border); margin-bottom: 24px; }
+
+.block-eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  font-size: 10.5px;
+  color: var(--muted);
+  font-weight: 700;
+  margin-bottom: 8px;
+}
+.block-letter {
+  display: inline-grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  background: var(--text);
+  color: white;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0;
+}
+.block-live  .block-letter { background: #0ea5e9; }
+.block-scan  .block-letter { background: #2563eb; }
+.block-title {
+  margin: 0 0 6px;
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--text);
+}
+.block-desc {
+  margin: 0;
+  max-width: 760px;
+  color: var(--muted);
+  font-size: 13.5px;
+  line-height: 1.6;
+}
+.block-desc strong { color: var(--text-2); font-weight: 600; }
+.block-body { display: flex; flex-direction: column; gap: 12px; }
+
+/* =====================================================================
+   Categories (inside Deep Scan)
+   ===================================================================== */
+.category {
+  margin-bottom: 32px;
+}
+.category:last-child { margin-bottom: 18px; }
+.category-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  margin-bottom: 14px;
+  padding: 0 4px;
+}
+.category-icon {
+  flex-shrink: 0;
+  width: 38px;
+  height: 38px;
+  border-radius: 10px;
+  display: grid;
+  place-items: center;
+  margin-top: 2px;
+}
+.category-title {
+  margin: 0 0 4px;
+  font-size: 16.5px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--text);
+}
+.category-desc {
+  margin: 0;
+  font-size: 13px;
+  color: var(--muted);
+  line-height: 1.5;
+  max-width: 680px;
+}
+
+/* card grids inside a category — different layouts per count */
+.cards-1 { grid-template-columns: minmax(220px, 320px); }
+.cards-2 { grid-template-columns: repeat(2, 1fr); }
+.cards-3 { grid-template-columns: repeat(3, 1fr); }
+.cards-4 { grid-template-columns: repeat(4, 1fr); }
+@media (max-width: 980px) {
+  .cards-3, .cards-4 { grid-template-columns: repeat(2, 1fr); }
+}
+@media (max-width: 560px) {
+  .cards-2, .cards-3, .cards-4 { grid-template-columns: 1fr; }
+}
+.category .cards { margin-bottom: 14px; }
+
+/* utility section — collapsed, subdued */
+.section-utility { background: var(--surface-2); }
+.section-utility .section-head { font-weight: 500; color: var(--muted); }
 
 /* =====================================================================
    Live Status — real-time watcher panel
@@ -203,6 +326,66 @@ code {
 .live-actions { flex-shrink: 0; }
 .btn-sm { padding: 6px 12px; font-size: 12.5px; }
 
+/* multi-domain: extra watched targets list */
+.live-extras {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px 20px;
+  box-shadow: var(--shadow-sm);
+}
+.live-extras-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 14px;
+  margin-bottom: 12px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border);
+  flex-wrap: wrap;
+}
+.empty-extras { padding: 12px 0 4px; text-align: center; }
+.live-add-form {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+.input.input-sm {
+  padding: 6px 10px;
+  font-size: 12.5px;
+  min-width: 240px;
+}
+.live-extra {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 10px;
+  border-radius: 6px;
+  border-bottom: 1px solid var(--border);
+  transition: background .12s;
+}
+.live-extra:last-child { border-bottom: 0; }
+.live-extra:hover { background: var(--surface-2); }
+.live-extra-url { flex: 1; }
+.live-extra-up      .led { background: var(--ok); }
+.live-extra-slow    .led { background: var(--warn); }
+.live-extra-down    .led { background: var(--critical); }
+.live-extra-unknown .led { background: var(--muted-2); }
+.led-sm { width: 10px; height: 10px; }
+.live-extra-remove { margin-left: auto; }
+.live-extra-remove button {
+  background: transparent;
+  border: 0;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 18px;
+  line-height: 1;
+  padding: 0 6px;
+  border-radius: 4px;
+  transition: all .12s;
+}
+.live-extra-remove button:hover { background: var(--critical-soft); color: var(--critical); }
+
 /* recent alerts feed */
 .live-alerts {
   display: flex;
@@ -235,7 +418,7 @@ code {
 .live-alert-info     { border-left: 3px solid var(--muted-2); }
 
 /* =====================================================================
-   Hero — target + run controls
+   Hero — target + run controls (inside Deep Scan block)
    ===================================================================== */
 .hero {
   display: flex;
@@ -243,15 +426,21 @@ code {
   justify-content: space-between;
   gap: 24px;
   flex-wrap: wrap;
-  margin-bottom: 16px;
+  margin-bottom: 18px;
+  background: var(--surface);
+  padding: 20px 22px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-sm);
 }
-.hero-label {
+.hero-label, .field-label {
   text-transform: uppercase;
   letter-spacing: 0.1em;
   font-size: 11px;
   color: var(--muted);
   font-weight: 600;
   margin-bottom: 6px;
+  display: block;
 }
 .hero-url {
   font-family: var(--mono);

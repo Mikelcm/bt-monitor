@@ -38,6 +38,7 @@ except Exception:
 
 from config import (
     DATA_DIR, get_base_url, set_base_url, get_recent_targets,
+    get_live_targets, add_live_target, remove_live_target, all_watched_targets,
 )
 from runner import read_state, build_summary
 from monitoring.store import UptimeStore
@@ -60,7 +61,7 @@ _watcher_task: asyncio.Task | None = None
 async def lifespan(app: FastAPI):
     """Start the watcher when the dashboard boots, stop on shutdown."""
     global _watcher_task
-    _watcher.set_targets([get_base_url()])
+    _watcher.set_targets(all_watched_targets())
     _watcher_task = asyncio.create_task(_watcher.run_forever())
     try:
         yield
@@ -92,13 +93,17 @@ def _load_json(name: str) -> dict | None:
 
 
 REPORT_FILES = {
-    "sitemap":     "sitemap_pages.json",
-    "links":       "links_report.json",
-    "performance": "performance_report.json",
-    "assets":      "assets_report.json",
-    "forms":       "forms_report.json",
-    "docs":        "docs_report.json",
-    "visual":      "visual_report.json",
+    "sitemap":       "sitemap_pages.json",
+    "links":         "links_report.json",
+    "performance":   "performance_report.json",
+    "assets":        "assets_report.json",
+    "forms":         "forms_report.json",
+    "docs":          "docs_report.json",
+    "accessibility": "accessibility_report.json",
+    "seo":           "seo_report.json",
+    "console":       "console_report.json",
+    "content":       "content_report.json",
+    "visual":        "visual_report.json",
 }
 
 
@@ -125,8 +130,11 @@ async def index(request: Request):
                     "detail": ", ".join(m["marker"] for m in d["markers_found"][:3]),
                 })
 
-    # live watcher snapshot
+    # live watcher snapshots — one per watched target
     live = _live_snapshot(base_url)
+    extras = [
+        _live_snapshot(u) for u in get_live_targets() if u.rstrip("/") != base_url.rstrip("/")
+    ]
 
     return templates.TemplateResponse(
         request=request,
@@ -139,6 +147,7 @@ async def index(request: Request):
             "recent_targets": recent,
             "criticals": criticals,
             "live": live,
+            "live_extras": extras,
             "has_data": bool(summary.get("pages")) and summary.get("base_url") == base_url,
             "stale_data": bool(summary.get("pages")) and summary.get("base_url") != base_url,
         },
@@ -208,8 +217,8 @@ async def change_target(url: str = Form(...), run_after: str | None = Form(None)
     if not url.startswith(("http://", "https://")):
         url = "https://" + url
     set_base_url(url)
-    # Retarget the live watcher immediately.
-    _watcher.set_targets([get_base_url()])
+    # Retarget the live watcher: keep extras, swap primary.
+    _watcher.set_targets(all_watched_targets())
     if run_after:
         state = read_state()
         if state.get("status") != "running":
@@ -233,6 +242,50 @@ async def clear_reports():
 # ---------------------------------------------------------------------
 # JSON APIs
 # ---------------------------------------------------------------------
+@app.get("/report.html", response_class=HTMLResponse)
+async def download_report(request: Request):
+    """Self-contained HTML report — safe to save / email / archive."""
+    base_url = get_base_url()
+    summary = _load_json("summary.json") or build_summary()
+    reports = {k: _load_json(v) for k, v in REPORT_FILES.items()}
+    criticals = []
+    if summary.get("doc_leaks", 0) > 0 and reports.get("docs"):
+        for d in reports["docs"].get("docs", []):
+            if d.get("markers_found"):
+                criticals.append({
+                    "type": "doc_leak",
+                    "title": "Internal document exposed publicly",
+                    "url": d["url"],
+                    "detail": ", ".join(m["marker"] for m in d["markers_found"][:3]),
+                })
+    response = templates.TemplateResponse(
+        request=request, name="report.html",
+        context={"base_url": base_url, "summary": summary, "reports": reports, "criticals": criticals},
+    )
+    # Suggest a filename when the user clicks the link.
+    from urllib.parse import urlparse
+    host = urlparse(base_url).netloc.replace(":", "_") or "site"
+    ts = (summary.get("generated_at") or "").replace(":", "-")[:19]
+    response.headers["Content-Disposition"] = (
+        f'attachment; filename="bt-monitor-{host}-{ts}.html"'
+    )
+    return response
+
+
+@app.post("/live/add")
+async def live_add(url: str = Form(...)):
+    add_live_target(url)
+    _watcher.set_targets(all_watched_targets())
+    return RedirectResponse(url="/", status_code=303)
+
+
+@app.post("/live/remove")
+async def live_remove(url: str = Form(...)):
+    remove_live_target(url)
+    _watcher.set_targets(all_watched_targets())
+    return RedirectResponse(url="/", status_code=303)
+
+
 @app.get("/api/state")
 async def api_state():
     return read_state()
@@ -248,7 +301,13 @@ async def api_reports():
 
 @app.get("/api/uptime")
 async def api_uptime():
-    return _live_snapshot(get_base_url())
+    base = get_base_url()
+    return {
+        "primary": _live_snapshot(base),
+        "extras": [
+            _live_snapshot(u) for u in get_live_targets() if u.rstrip("/") != base.rstrip("/")
+        ],
+    }
 
 
 if __name__ == "__main__":

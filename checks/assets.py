@@ -21,6 +21,7 @@ from patchright.async_api import async_playwright
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 from config import BASE_URL, USER_AGENT, CRAWL_TIMEOUT_MS, DATA_DIR
+from helpers.cookies import dismiss_cookies
 
 try:
     sys.stdout.reconfigure(encoding="utf-8")
@@ -130,6 +131,7 @@ async def check_assets(page_urls: list[str]) -> dict:
         warm = await context.new_page()
         try:
             await warm.goto(BASE_URL, timeout=CRAWL_TIMEOUT_MS, wait_until="domcontentloaded")
+            await dismiss_cookies(warm)
         except Exception:
             pass
         await warm.close()

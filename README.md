@@ -12,7 +12,14 @@ Detects, on every run, on every page of the public site:
 | 3 | **Missing assets**          | Images, fonts, scripts or stylesheets that fail to load    |
 | 4 | **Form issues**             | Broken `action` URLs, no submit button, missing labels     |
 | 5 | **Internal-doc leaks**      | PDFs / DOCX containing "Uz intern" / "Confidențial"         |
-| 6 | **Visual / "any other"**    | (Optional) Claude vision pass on a sample of pages         |
+| 6 | **Accessibility (WCAG 2 AA)** | axe-core scan, critical + serious violations only — legal requirement for EU bank sites |
+| 7 | **SEO health**              | Missing title / description / canonical / viewport, multiple H1s, no Open Graph |
+| 8 | **JS errors & failed reqs** | Uncaught exceptions, `console.error()`, broken fetches    |
+| 9 | **Live uptime watcher**     | Continuous probe every ~30 s with hysteresis + real-time alerts |
+| 10| **Visual / "any other"**    | (Optional) Claude vision pass on a sample of pages         |
+
+Checks 6, 7 and 8 are ported from [flaviuzh/bt-monitor](https://github.com/flaviuzh/bt-monitor)
+(originally in TypeScript). Credits to the original implementation.
 
 A FastAPI dashboard renders every report with a health score and one-click
 re-runs. A test fixture with **intentional issues** ships with the project

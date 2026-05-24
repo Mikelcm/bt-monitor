@@ -23,7 +23,7 @@
     </div>
     <div class="nav-right">
       {% if not has_data %}
-        <span class="pill pill-muted"><span class="pill-dot"></span>No data</span>
+        <span class="pill pill-muted"><span class="pill-dot"></span>No scan yet</span>
       {% elif summary.status == 'critical' %}
         <span class="pill pill-critical"><span class="pill-dot"></span>Critical</span>
       {% elif summary.status == 'blocked' %}
@@ -42,576 +42,872 @@
 <main class="page">
 
   {# ==================================================================== #}
-  {# Live Status — real-time watcher                                       #}
+  {# ┌────────────────────────────────────────────────────────────────┐    #}
+  {# │  BLOCK A — LIVE MONITORING (continuous, real-time)             │    #}
+  {# └────────────────────────────────────────────────────────────────┘    #}
   {# ==================================================================== #}
-  <section class="live live-{{ live.state }}" id="live-section" data-target="{{ live.target }}">
-    <div class="live-led">
-      <span class="led led-{{ live.state }}"></span>
-    </div>
-    <div class="live-body">
-      <div class="live-kicker">
-        Real-time reachability · probed every ~30s · independent of the deep scan below
+  <section class="block block-live">
+    <header class="block-header">
+      <div class="block-eyebrow">
+        <span class="block-letter">A</span>
+        <span>Continuous monitoring</span>
+        <span class="muted">·</span>
+        <span class="muted">runs 24/7 in the background</span>
       </div>
-      <div class="live-head">
-        <span class="live-state" id="live-state-label">{{ {'up':'REACHABLE', 'slow':'SLOW', 'down':'UNREACHABLE', 'unknown':'CHECKING…'}[live.state] }}</span>
-        <span class="live-meta">
-          <span id="live-status">HTTP {{ live.last_status or '—' }}</span>
-          ·
-          <span id="live-rt">{{ live.last_response_ms or '—' }} ms</span>
-          ·
-          <span class="muted">uptime 24h <strong id="live-uptime">{{ live.uptime_24h_pct or '—' }}%</strong></span>
-          ·
-          <span class="muted">probed <span id="live-ago">…</span></span>
-        </span>
-      </div>
-      <div class="live-spark">
-        <svg id="spark" viewBox="0 0 600 32" preserveAspectRatio="none" aria-hidden="true">
-          <g id="spark-bars"></g>
-        </svg>
-        <div class="live-spark-legend muted small">
-          last {{ live.pings|length }} probes — green = reachable, amber = slow, red = unreachable
-        </div>
-      </div>
-    </div>
-    <div class="live-actions">
-      <button class="btn btn-ghost btn-sm" type="button" id="enable-notif">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
-        Enable alerts
-      </button>
-    </div>
-  </section>
+      <h2 class="block-title">Live reachability</h2>
+      <p class="block-desc">Pings every watched URL every ~30 seconds. If a site goes down or slow for 3 probes in a row (~90 s), you get a desktop notification and a Teams webhook (if configured). This is about <strong>"is the site responding right now"</strong>, not about content quality.</p>
+    </header>
 
-  {# Recent state-change toasts (live alerts feed) #}
-  <section id="live-alerts" class="live-alerts {% if not live.alerts %}hidden{% endif %}">
-    {% for a in live.alerts[:5] %}
-      <div class="live-alert live-alert-{{ a.severity }}">
-        <span class="live-alert-dot"></span>
-        <span class="mono small">{{ a.url }}</span>
-        <span class="tag tag-{% if a.severity == 'critical' %}critical{% elif a.severity == 'warn' %}warn{% else %}ok{% endif %}">
-          {{ a.from }} → {{ a.to }}
-        </span>
-        <span class="muted small">{{ a.message }}</span>
-      </div>
-    {% endfor %}
-  </section>
+    <div class="block-body">
 
-  {# ==================================================================== #}
-  {# Hero — target + run controls                                          #}
-  {# ==================================================================== #}
-  <section class="hero">
-    <div class="hero-left">
-      <div class="hero-label">monitoring target</div>
-      <div class="hero-url" id="hero-url">{{ base_url }}</div>
-      <div class="hero-meta">
-        {% if summary.generated_at %}
-          Last scanned <strong id="last-scanned" data-iso="{{ summary.generated_at }}">{{ summary.generated_at }}</strong>
-          {% if summary.pages %}· {{ summary.pages }} pages{% endif %}
-        {% elif has_data == false %}
-          <span class="muted">No scan yet</span>
-        {% endif %}
-        {% if stale_data %}
-          <span class="tag tag-warn">Reports below are from a previous target — run again</span>
-        {% endif %}
-      </div>
-    </div>
-    <div class="hero-right">
-      <button class="btn btn-ghost" type="button" onclick="document.getElementById('target-panel').classList.toggle('open')">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
-        Change target
-      </button>
-      <form method="post" action="/run" style="display:inline">
-        <button class="btn btn-primary btn-big" type="submit" {% if state.status == 'running' %}disabled{% endif %}>
-          {% if state.status == 'running' %}
-            <span class="spinner-sm"></span> Running…
-          {% else %}
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7L8 5Z"/></svg>
-            Run all checks
-          {% endif %}
-        </button>
-      </form>
-    </div>
-  </section>
-
-  {# ==================================================================== #}
-  {# Target switcher panel — collapsed by default                          #}
-  {# ==================================================================== #}
-  <section id="target-panel" class="target-panel">
-    <form method="post" action="/target" class="target-form">
-      <label class="field">
-        <span class="field-label">URL to monitor</span>
-        <input type="text" name="url" class="input"
-               value="{{ base_url }}"
-               placeholder="https://www.example.ro"
-               autocomplete="off"
-               spellcheck="false">
-      </label>
-      {% if recent_targets %}
-      <div class="quick-picks">
-        <span class="field-label">recent</span>
-        {% for t in recent_targets %}
-          <button type="button" class="chip" data-url="{{ t }}"
-                  onclick="document.querySelector('#target-panel input[name=url]').value='{{ t }}'">{{ t }}</button>
-        {% endfor %}
-      </div>
-      {% endif %}
-      <div class="quick-picks">
-        <span class="field-label">presets</span>
-        <button type="button" class="chip" onclick="document.querySelector('#target-panel input[name=url]').value='http://127.0.0.1:8765'">local test fixture</button>
-        <button type="button" class="chip" onclick="document.querySelector('#target-panel input[name=url]').value='https://www.resetmedia.ro'">resetmedia.ro</button>
-        <button type="button" class="chip" onclick="document.querySelector('#target-panel input[name=url]').value='https://www.bancatransilvania.ro'">bancatransilvania.ro</button>
-      </div>
-      <div class="target-actions">
-        <button type="submit" name="run_after" value="1" class="btn btn-primary">Save &amp; run</button>
-        <button type="submit" class="btn btn-ghost">Save only</button>
-        <button type="button" class="btn btn-ghost" onclick="document.getElementById('target-panel').classList.remove('open')">Cancel</button>
-      </div>
-    </form>
-  </section>
-
-  {# ==================================================================== #}
-  {# Running banner                                                        #}
-  {# ==================================================================== #}
-  <section id="running-banner" class="banner banner-info {% if state.status != 'running' %}hidden{% endif %}">
-    <span class="spinner"></span>
-    <div>
-      <strong>Scan in progress…</strong>
-      <span class="muted">step: <span id="current-step">{{ state.current_step or '—' }}</span> · <span id="completed-count">{{ state.completed_steps|length if state.completed_steps else 0 }}</span>/7 complete</span>
-    </div>
-  </section>
-
-  {% if has_data %}
-
-  {# ==================================================================== #}
-  {# WAF-blocked banner — the scan never really happened                   #}
-  {# ==================================================================== #}
-  {% if summary.status == 'blocked' %}
-  <section class="critical-banner blocked-banner">
-    <div class="critical-icon">
-      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
-    </div>
-    <div class="critical-content">
-      <div class="critical-title">Scan blocked by the site's bot protection</div>
-      <div class="critical-item">
-        <span>The crawler got <strong>HTTP 403</strong> on {{ summary.blocked_403_count }} request(s). Discovery fell back to: <code>{{ summary.discovery_method }}</code> — only the homepage was reached.</span>
-      </div>
-      <div class="critical-item">
-        <span class="muted small">
-          The "0 issues" cards below are not meaningful — we couldn't actually read the site.
-          See the README's <em>Deployment to BT</em> section: this target needs an Akamai/WAF allowlist for the monitor's User-Agent or IP, or the tool must run from inside the target's network.
-        </span>
-      </div>
-    </div>
-  </section>
-  {% endif %}
-
-  {# ==================================================================== #}
-  {# Critical alerts banner                                                #}
-  {# ==================================================================== #}
-  {% if criticals %}
-  <section class="critical-banner">
-    <div class="critical-icon">
-      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
-    </div>
-    <div class="critical-content">
-      <div class="critical-title">{{ criticals|length }} critical issue{% if criticals|length != 1 %}s{% endif %} need immediate attention</div>
-      {% for c in criticals %}
-        <div class="critical-item">
-          <strong>{{ c.title }}</strong>
-          <span class="mono">{{ c.url }}</span>
-          <span class="muted">— {{ c.detail }}</span>
-        </div>
-      {% endfor %}
-    </div>
-  </section>
-  {% endif %}
-
-  {# ==================================================================== #}
-  {# Health hero card                                                      #}
-  {# ==================================================================== #}
-  <section class="health-card health-{{ summary.status }}">
-    <div class="health-main">
-      <div class="health-score">
-        {% if summary.health_score is not none %}
-          <span class="health-value">{{ summary.health_score }}</span>
-          <span class="health-max">/ 100</span>
-        {% else %}
-          <span class="health-value">—</span>
-        {% endif %}
-      </div>
-      <div class="health-label">
-        {% if summary.status == 'blocked' %}Score unavailable — scan blocked
-        {% else %}Health score{% endif %}
-      </div>
-    </div>
-    <div class="health-bar-wrap">
-      <div class="health-bar"><div class="health-bar-fill" style="width: {{ summary.health_score or 0 }}%"></div></div>
-      <div class="health-bar-legend">
-        <span><span class="dot-sm dot-ok"></span> 80–100 healthy</span>
-        <span><span class="dot-sm dot-warn"></span> 30–79 warning</span>
-        <span><span class="dot-sm dot-critical"></span> 0–29 critical</span>
-        {% if summary.discovery_method %}
-          <span class="muted">· discovery: <code>{{ summary.discovery_method }}</code></span>
-        {% endif %}
-      </div>
-    </div>
-  </section>
-
-  {# ==================================================================== #}
-  {# Metric cards                                                          #}
-  {# ==================================================================== #}
-  <section class="cards">
-
-    <a href="#sec-links" class="card {% if summary.broken_links %}card-warn{% else %}card-ok{% endif %}">
-      <div class="card-icon">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
-      </div>
-      <div class="card-body">
-        <div class="card-value">{{ summary.broken_links }}</div>
-        <div class="card-label">broken links</div>
-        <div class="card-foot">of {{ summary.unique_links }} checked</div>
-      </div>
-    </a>
-
-    <a href="#sec-perf" class="card {% if summary.slow_pages %}card-warn{% else %}card-ok{% endif %}">
-      <div class="card-icon">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-      </div>
-      <div class="card-body">
-        <div class="card-value">{{ summary.slow_pages }}</div>
-        <div class="card-label">slow pages</div>
-        <div class="card-foot">&gt; {{ summary.perf_threshold_ms }} ms</div>
-      </div>
-    </a>
-
-    <a href="#sec-assets" class="card {% if summary.asset_failures %}card-warn{% else %}card-ok{% endif %}">
-      <div class="card-icon">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
-      </div>
-      <div class="card-body">
-        <div class="card-value">{{ summary.asset_failures }}</div>
-        <div class="card-label">missing assets</div>
-        <div class="card-foot">images · fonts · scripts</div>
-      </div>
-    </a>
-
-    <a href="#sec-forms" class="card {% if summary.form_issues %}card-warn{% else %}card-ok{% endif %}">
-      <div class="card-icon">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="9" y1="13" x2="15" y2="13"/><line x1="9" y1="17" x2="15" y2="17"/></svg>
-      </div>
-      <div class="card-body">
-        <div class="card-value">{{ summary.form_issues }}</div>
-        <div class="card-label">form issues</div>
-        <div class="card-foot">of {{ summary.total_forms }} forms</div>
-      </div>
-    </a>
-
-    <a href="#sec-docs" class="card {% if summary.doc_leaks %}card-critical{% else %}card-ok{% endif %}">
-      <div class="card-icon">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
-      </div>
-      <div class="card-body">
-        <div class="card-value">{{ summary.doc_leaks }}</div>
-        <div class="card-label">doc leaks</div>
-        <div class="card-foot">{{ summary.docs_scanned }} docs scanned</div>
-      </div>
-    </a>
-
-    <a href="#sec-visual" class="card {% if summary.visual_issues %}card-warn{% elif summary.visual_skipped %}card-muted{% else %}card-ok{% endif %}">
-      <div class="card-icon">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
-      </div>
-      <div class="card-body">
-        <div class="card-value">{{ summary.visual_issues or 0 }}</div>
-        <div class="card-label">AI visual</div>
-        <div class="card-foot">
-          {% if summary.visual_skipped %}skipped — no API key{% else %}{{ summary.visual_pages_sampled }} pages sampled{% endif %}
-        </div>
-      </div>
-    </a>
-
-  </section>
-
-  {# ==================================================================== #}
-  {# Detail sections — critical first                                      #}
-  {# ==================================================================== #}
-
-  {# --- doc leaks (most critical, first) --- #}
-  <details class="section" id="sec-docs" {% if summary.doc_leaks %}open{% endif %}>
-    <summary class="section-head">
-      <span class="section-title">
-        <span class="dot {% if summary.doc_leaks %}dot-critical{% else %}dot-ok{% endif %}"></span>
-        Documents — internal classification leaks
-      </span>
-      <span class="count {% if summary.doc_leaks %}count-critical{% else %}count-ok{% endif %}">{{ summary.doc_leaks }}</span>
-    </summary>
-    <div class="section-body">
-      {% if reports.docs and reports.docs.docs %}
-        <p class="muted small">Scans every PDF/DOCX linked from public pages for markers like <code>Uz intern</code>, <code>Confidențial</code>, <code>Internal use only</code>.</p>
-        <table class="data">
-          <thead><tr><th>Document</th><th>Bytes</th><th>Matches</th></tr></thead>
-          <tbody>
-            {% for d in reports.docs.docs %}
-              <tr class="{% if d.markers_found %}row-critical{% endif %}">
-                <td class="mono">{{ d.url }}</td>
-                <td class="num">{{ '{:,}'.format(d.bytes) }}</td>
-                <td>
-                  {% if d.markers_found %}
-                    {% for m in d.markers_found[:5] %}
-                      <div class="match"><span class="tag tag-critical">{{ m.marker }}</span><span class="muted small">…{{ m.context }}…</span></div>
-                    {% endfor %}
-                  {% else %}<span class="tag tag-ok">clean</span>{% endif %}
-                </td>
-              </tr>
-            {% endfor %}
-          </tbody>
-        </table>
-      {% else %}
-        <p class="muted">No documents scanned. PDF / DOCX links on the public site will appear here.</p>
-      {% endif %}
-    </div>
-  </details>
-
-  {# --- broken links --- #}
-  <details class="section" id="sec-links" {% if summary.broken_links %}open{% endif %}>
-    <summary class="section-head">
-      <span class="section-title">
-        <span class="dot {% if summary.broken_links %}dot-warn{% else %}dot-ok{% endif %}"></span>
-        Broken links
-      </span>
-      <span class="count {% if summary.broken_links %}count-warn{% else %}count-ok{% endif %}">{{ summary.broken_links }}</span>
-    </summary>
-    <div class="section-body">
-      {% if reports.links and reports.links.broken %}
-        <table class="data">
-          <thead><tr><th>Status</th><th>URL</th><th>Notes</th></tr></thead>
-          <tbody>
-            {% for p in reports.links.broken %}
-              <tr>
-                <td><span class="tag tag-warn">{{ p.status or 'ERR' }}</span></td>
-                <td class="mono">{{ p.url }}</td>
-                <td class="muted small">{{ p.error or '' }}</td>
-              </tr>
-            {% endfor %}
-          </tbody>
-        </table>
-      {% else %}
-        <p class="muted">No broken links detected.</p>
-      {% endif %}
-    </div>
-  </details>
-
-  {# --- performance --- #}
-  <details class="section" id="sec-perf" {% if summary.slow_pages %}open{% endif %}>
-    <summary class="section-head">
-      <span class="section-title">
-        <span class="dot {% if summary.slow_pages %}dot-warn{% else %}dot-ok{% endif %}"></span>
-        Page performance
-      </span>
-      <span class="count {% if summary.slow_pages %}count-warn{% else %}count-ok{% endif %}">{{ summary.slow_pages }} slow / {{ reports.performance.pages_checked if reports.performance else 0 }}</span>
-    </summary>
-    <div class="section-body">
-      {% if reports.performance %}
-        <p class="muted small">Threshold: pages over <strong>{{ summary.perf_threshold_ms }} ms</strong> are flagged.</p>
-        <table class="data">
-          <thead><tr><th>URL</th><th>Load</th><th>FCP</th><th>TTFB</th><th>Bytes</th></tr></thead>
-          <tbody>
-            {% for p in reports.performance.pages %}
-              {% set m = p.metrics %}
-              {% set slow = m.load_ms and m.load_ms > summary.perf_threshold_ms %}
-              <tr class="{% if slow %}row-warn{% endif %}">
-                <td class="mono">{{ p.page_url }}</td>
-                <td class="num"><strong>{{ m.load_ms if m.load_ms is not none else '—' }}</strong><span class="unit"> ms</span></td>
-                <td class="num">{{ m.first_contentful_paint_ms if m.first_contentful_paint_ms is not none else '—' }}<span class="unit"> ms</span></td>
-                <td class="num">{{ m.ttfb_ms if m.ttfb_ms is not none else '—' }}<span class="unit"> ms</span></td>
-                <td class="num">{{ '{:,}'.format(m.transfer_bytes) if m.transfer_bytes else '—' }}</td>
-              </tr>
-            {% endfor %}
-          </tbody>
-        </table>
-      {% endif %}
-    </div>
-  </details>
-
-  {# --- assets --- #}
-  <details class="section" id="sec-assets" {% if summary.asset_failures %}open{% endif %}>
-    <summary class="section-head">
-      <span class="section-title">
-        <span class="dot {% if summary.asset_failures %}dot-warn{% else %}dot-ok{% endif %}"></span>
-        Missing assets
-      </span>
-      <span class="count {% if summary.asset_failures %}count-warn{% else %}count-ok{% endif %}">{{ summary.asset_failures }}</span>
-    </summary>
-    <div class="section-body">
-      {% if reports.assets and reports.assets.total_failed_assets %}
-        <table class="data">
-          <thead><tr><th>Type</th><th>Status</th><th>URL</th><th>Found on</th></tr></thead>
-          <tbody>
-            {% for t, items in reports.assets.failed_assets_by_type.items() %}
-              {% for it in items %}
-                <tr>
-                  <td><span class="badge">{{ t }}</span></td>
-                  <td><span class="tag tag-warn">{{ it.status or it.failure_text or '?' }}</span></td>
-                  <td class="mono">{{ it.url }}</td>
-                  <td class="mono muted small">{{ it.page_url }}</td>
-                </tr>
-              {% endfor %}
-            {% endfor %}
-          </tbody>
-        </table>
-      {% else %}
-        <p class="muted">No missing assets — all images, fonts, scripts and stylesheets load successfully.</p>
-      {% endif %}
-    </div>
-  </details>
-
-  {# --- forms --- #}
-  <details class="section" id="sec-forms" {% if summary.form_issues %}open{% endif %}>
-    <summary class="section-head">
-      <span class="section-title">
-        <span class="dot {% if summary.form_issues %}dot-warn{% else %}dot-ok{% endif %}"></span>
-        Forms
-      </span>
-      <span class="count {% if summary.form_issues %}count-warn{% else %}count-ok{% endif %}">{{ summary.form_issues }} issues / {{ summary.total_forms }} total</span>
-    </summary>
-    <div class="section-body">
-      {% if reports.forms and reports.forms.forms %}
-        <p class="muted small">Static analysis only — end-to-end submission requires a staging endpoint.</p>
-        <table class="data">
-          <thead><tr><th>Method</th><th>Action</th><th>Fields</th><th>Issues</th></tr></thead>
-          <tbody>
-            {% for f in reports.forms.forms %}
-              <tr class="{% if f.issues %}row-warn{% endif %}">
-                <td><span class="badge">{{ f.method }}</span></td>
-                <td class="mono">{{ f.action_url or '(no action)' }}</td>
-                <td>{{ f.field_count }} <span class="muted small">({{ f.required_fields }} required)</span></td>
-                <td>
-                  {% if f.issues %}
-                    {% for i in f.issues %}<span class="tag tag-warn">{{ i }}</span>{% endfor %}
-                  {% else %}<span class="tag tag-ok">OK</span>{% endif %}
-                </td>
-              </tr>
-            {% endfor %}
-          </tbody>
-        </table>
-      {% else %}
-        <p class="muted">No forms found.</p>
-      {% endif %}
-    </div>
-  </details>
-
-  {# --- AI visual --- #}
-  <details class="section" id="sec-visual" {% if summary.visual_issues %}open{% endif %}>
-    <summary class="section-head">
-      <span class="section-title">
-        <span class="dot {% if summary.visual_issues %}dot-warn{% else %}dot-ok{% endif %}"></span>
-        AI visual check
-      </span>
-      <span class="count {% if summary.visual_issues %}count-warn{% else %}count-ok{% endif %}">{{ summary.visual_issues or 0 }}</span>
-    </summary>
-    <div class="section-body">
-      {% if reports.visual and reports.visual.skipped %}
-        <div class="callout">
-          <strong>Skipped</strong> — set the <code>ANTHROPIC_API_KEY</code> environment variable to enable Claude vision checks. Cost is roughly <strong>$0.02 per run</strong> for a 10-page sample.
-        </div>
-      {% elif reports.visual and reports.visual.findings %}
-        <p class="muted small">Model: <code>{{ reports.visual.model }}</code> · {{ reports.visual.sampled_count }} page(s) sampled.</p>
-        {% for f in reports.visual.findings %}
-          <div class="visual-page">
-            <div class="visual-head">
-              <span class="dot {% if f.page_health == 'critical' %}dot-critical{% elif f.page_health == 'warn' or f.issues %}dot-warn{% else %}dot-ok{% endif %}"></span>
-              <span class="mono">{{ f.page_url }}</span>
-              <span class="tag tag-{% if f.page_health == 'critical' %}critical{% elif f.page_health == 'warn' %}warn{% else %}ok{% endif %}">{{ f.page_health }}</span>
+      {# --- primary live target ----------------------------------------- #}
+      <div class="live live-{{ live.state }}" id="live-section" data-target="{{ live.target }}">
+        <div class="live-led"><span class="led led-{{ live.state }}"></span></div>
+        <div class="live-body">
+          <div class="live-kicker">Primary target · what the deep scan below also targets</div>
+          <div class="live-head">
+            <span class="live-state" id="live-state-label">{{ {'up':'REACHABLE', 'slow':'SLOW', 'down':'UNREACHABLE', 'unknown':'CHECKING…'}[live.state] }}</span>
+            <span class="live-meta">
+              <span class="mono">{{ live.target }}</span>
+              ·
+              <span id="live-status">HTTP {{ live.last_status or '—' }}</span>
+              ·
+              <span id="live-rt">{{ live.last_response_ms or '—' }} ms</span>
+              ·
+              <span class="muted">uptime 24h <strong id="live-uptime">{{ live.uptime_24h_pct or '—' }}%</strong></span>
+              ·
+              <span class="muted">probed <span id="live-ago">…</span></span>
+            </span>
+          </div>
+          <div class="live-spark">
+            <svg id="spark" viewBox="0 0 600 32" preserveAspectRatio="none" aria-hidden="true">
+              <g id="spark-bars"></g>
+            </svg>
+            <div class="live-spark-legend muted small">
+              last {{ live.pings|length }} probes (every ~30 s) — green = reachable, amber = slow, red = unreachable
             </div>
-            {% if f.summary %}<div class="muted small">{{ f.summary }}</div>{% endif %}
-            {% if f.error %}
-              <div class="tag tag-warn">error: {{ f.error }}</div>
-            {% elif f.issues %}
-              <ul class="issue-list">
-                {% for i in f.issues %}
-                  <li>
-                    <span class="tag tag-{% if i.severity == 'high' %}critical{% elif i.severity == 'medium' %}warn{% else %}ok{% endif %}">{{ i.severity }}</span>
-                    <span class="badge">{{ i.category }}</span>
-                    <span>{{ i.description }}</span>
-                    {% if i.location %}<span class="muted small">— {{ i.location }}</span>{% endif %}
-                  </li>
-                {% endfor %}
-              </ul>
-            {% endif %}
+          </div>
+        </div>
+        <div class="live-actions">
+          <button class="btn btn-ghost btn-sm" type="button" id="enable-notif">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+            Enable alerts
+          </button>
+        </div>
+      </div>
+
+      {# --- extra watched targets (multi-domain) ------------------------ #}
+      <div class="live-extras" id="live-extras-section">
+        <div class="live-extras-head">
+          <div>
+            <div class="field-label">Other targets watched in parallel</div>
+            <div class="muted small">Add bt-pay.ro, btleasing.ro, etc. — each pinged every 30 s with its own alert pipeline.</div>
+          </div>
+          <form method="post" action="/live/add" class="live-add-form">
+            <input type="text" name="url" placeholder="https://www.example.ro" required class="input input-sm" autocomplete="off" spellcheck="false">
+            <button type="submit" class="btn btn-primary btn-sm">+ Add target</button>
+          </form>
+        </div>
+        <div id="live-extras-list">
+          {% for ex in live_extras %}
+            <div class="live-extra live-extra-{{ ex.state }}" data-url="{{ ex.target }}">
+              <span class="led led-{{ ex.state }} led-sm"></span>
+              <span class="mono small live-extra-url">{{ ex.target }}</span>
+              <span class="muted small">{{ {'up':'REACHABLE','slow':'SLOW','down':'UNREACHABLE','unknown':'…'}[ex.state] }}</span>
+              <span class="muted small">HTTP {{ ex.last_status or '—' }}</span>
+              <span class="muted small">{{ ex.last_response_ms or '—' }} ms</span>
+              <span class="muted small">uptime {{ ex.uptime_24h_pct or '—' }}%</span>
+              <form method="post" action="/live/remove" class="live-extra-remove">
+                <input type="hidden" name="url" value="{{ ex.target }}">
+                <button type="submit" title="Stop watching this URL" aria-label="Remove">×</button>
+              </form>
+            </div>
+          {% endfor %}
+          {% if not live_extras %}
+            <div class="muted small empty-extras">No extra targets yet — add one above to monitor multiple domains at once.</div>
+          {% endif %}
+        </div>
+      </div>
+
+      {# --- recent state-change toasts --------------------------------- #}
+      <section id="live-alerts" class="live-alerts {% if not live.alerts %}hidden{% endif %}">
+        {% for a in live.alerts[:5] %}
+          <div class="live-alert live-alert-{{ a.severity }}">
+            <span class="live-alert-dot"></span>
+            <span class="mono small">{{ a.url }}</span>
+            <span class="tag tag-{% if a.severity == 'critical' %}critical{% elif a.severity == 'warn' %}warn{% else %}ok{% endif %}">{{ a.from }} → {{ a.to }}</span>
+            <span class="muted small">{{ a.message }}</span>
           </div>
         {% endfor %}
-      {% else %}
-        <p class="muted">No data — run a scan first.</p>
-      {% endif %}
+      </section>
+
     </div>
-  </details>
-
-  {# --- pages discovered (info-only, collapsed) --- #}
-  <details class="section" id="sec-pages">
-    <summary class="section-head">
-      <span class="section-title">
-        <span class="dot dot-ok"></span>
-        Pages discovered
-      </span>
-      <span class="count count-ok">{{ summary.pages }}</span>
-    </summary>
-    <div class="section-body">
-      {% if reports.sitemap %}
-        <table class="data">
-          <thead><tr><th>URL</th></tr></thead>
-          <tbody>
-            {% for u in reports.sitemap.page_urls %}<tr><td class="mono">{{ u }}</td></tr>{% endfor %}
-          </tbody>
-        </table>
-      {% endif %}
-    </div>
-  </details>
-
-  <div class="row-actions">
-    <form method="post" action="/clear" onsubmit="return confirm('Delete all current reports?')">
-      <button type="submit" class="btn btn-ghost btn-danger">Clear reports</button>
-    </form>
-  </div>
-
-  {% else %}
-
-  {# ==================================================================== #}
-  {# Empty state                                                           #}
-  {# ==================================================================== #}
-  <section class="empty">
-    {% if summary.pages == 0 and summary.generated_at %}
-      {# A scan ran but produced no pages — surface that explicitly. #}
-      <div class="empty-icon" style="background: var(--warn-soft); color: var(--warn-dark)">
-        <svg width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
-      </div>
-      <h2>The last scan discovered 0 pages</h2>
-      <p>This usually means the site has no <code>sitemap.xml</code> and the homepage either failed to load or has no same-origin links to follow.</p>
-      <p class="muted small">
-        Things to check:
-        the homepage returns a 200 OK in a browser ·
-        the site isn't a single-page app that renders nav after a long delay ·
-        the target URL is correct.
-      </p>
-      <p class="muted small">Try clicking <strong>Run all checks</strong> again — the crawler now falls back to a BFS walk from the homepage if no sitemap is found.</p>
-    {% else %}
-      <div class="empty-icon">
-        <svg width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-      </div>
-      <h2>Ready to scan {{ base_url }}</h2>
-      <p>Click <strong>Run all checks</strong> above to start the first scan. Results appear here in about a minute.</p>
-      <p class="muted small">The seven checks run in order: discover pages, broken links, performance, missing assets, form health, document leaks, AI visual.</p>
-    {% endif %}
   </section>
 
-  {% endif %}
+
+  {# ==================================================================== #}
+  {# ┌────────────────────────────────────────────────────────────────┐    #}
+  {# │  BLOCK B — DEEP SCAN (on-demand full audit)                    │    #}
+  {# └────────────────────────────────────────────────────────────────┘    #}
+  {# ==================================================================== #}
+  <section class="block block-scan">
+    <header class="block-header">
+      <div class="block-eyebrow">
+        <span class="block-letter">B</span>
+        <span>On-demand audit</span>
+        <span class="muted">·</span>
+        <span class="muted">runs in ~3–5 minutes</span>
+      </div>
+      <h2 class="block-title">Deep scan — full quality audit</h2>
+      <p class="block-desc">Eleven checks covering security &amp; compliance, technical bugs, quality &amp; UX, and AI visual review. Produces a JSON report per check plus a consolidated summary. Click <strong>Run all checks</strong> when you want fresh results — it doesn't run automatically.</p>
+    </header>
+
+    <div class="block-body">
+
+      {# --- hero: target + controls ------------------------------------ #}
+      <div class="hero">
+        <div class="hero-left">
+          <div class="field-label">Currently scanning</div>
+          <div class="hero-url" id="hero-url">{{ base_url }}</div>
+          <div class="hero-meta">
+            {% if summary.generated_at %}
+              Last scan completed <strong id="last-scanned" data-iso="{{ summary.generated_at }}">{{ summary.generated_at }}</strong>
+              {% if summary.pages %}· <strong>{{ summary.pages }}</strong> pages discovered{% endif %}
+              {% if summary.discovery_method %}via <code>{{ summary.discovery_method }}</code>{% endif %}
+            {% else %}
+              <span class="muted">No scan yet</span>
+            {% endif %}
+            {% if stale_data %}
+              <span class="tag tag-warn">Reports below are from the previous target — re-run</span>
+            {% endif %}
+          </div>
+        </div>
+        <div class="hero-right">
+          <button class="btn btn-ghost" type="button" onclick="document.getElementById('target-panel').classList.toggle('open')">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
+            Change target
+          </button>
+          {% if has_data %}
+          <a class="btn btn-ghost" href="/report.html" title="Download a self-contained HTML report you can email or archive">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+            Download report
+          </a>
+          {% endif %}
+          <form method="post" action="/run" style="display:inline">
+            <button class="btn btn-primary btn-big" type="submit" {% if state.status == 'running' %}disabled{% endif %}>
+              {% if state.status == 'running' %}
+                <span class="spinner-sm"></span> Running…
+              {% else %}
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7L8 5Z"/></svg>
+                Run all checks
+              {% endif %}
+            </button>
+          </form>
+        </div>
+      </div>
+
+      {# --- target switcher panel (collapsible) ------------------------- #}
+      <section id="target-panel" class="target-panel">
+        <form method="post" action="/target" class="target-form">
+          <label class="field">
+            <span class="field-label">URL to scan</span>
+            <input type="text" name="url" class="input"
+                   value="{{ base_url }}"
+                   placeholder="https://www.example.ro"
+                   autocomplete="off" spellcheck="false">
+          </label>
+          {% if recent_targets %}
+          <div class="quick-picks">
+            <span class="field-label">recent</span>
+            {% for t in recent_targets %}
+              <button type="button" class="chip"
+                      onclick="document.querySelector('#target-panel input[name=url]').value='{{ t }}'">{{ t }}</button>
+            {% endfor %}
+          </div>
+          {% endif %}
+          <div class="quick-picks">
+            <span class="field-label">presets</span>
+            <button type="button" class="chip" onclick="document.querySelector('#target-panel input[name=url]').value='http://127.0.0.1:8765'">local test fixture</button>
+            <button type="button" class="chip" onclick="document.querySelector('#target-panel input[name=url]').value='https://www.resetmedia.ro'">resetmedia.ro</button>
+            <button type="button" class="chip" onclick="document.querySelector('#target-panel input[name=url]').value='https://www.bancatransilvania.ro'">bancatransilvania.ro</button>
+          </div>
+          <div class="target-actions">
+            <button type="submit" name="run_after" value="1" class="btn btn-primary">Save &amp; run</button>
+            <button type="submit" class="btn btn-ghost">Save only</button>
+            <button type="button" class="btn btn-ghost" onclick="document.getElementById('target-panel').classList.remove('open')">Cancel</button>
+          </div>
+        </form>
+      </section>
+
+      {# --- running banner ---------------------------------------------- #}
+      <section id="running-banner" class="banner banner-info {% if state.status != 'running' %}hidden{% endif %}">
+        <span class="spinner"></span>
+        <div>
+          <strong>Scan in progress…</strong>
+          <span class="muted">step: <span id="current-step">{{ state.current_step or '—' }}</span> · <span id="completed-count">{{ state.completed_steps|length if state.completed_steps else 0 }}</span>/11 complete</span>
+        </div>
+      </section>
+
+      {% if has_data %}
+
+      {# --- WAF blocked banner ------------------------------------------ #}
+      {% if summary.status == 'blocked' %}
+      <section class="critical-banner blocked-banner">
+        <div class="critical-icon">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+        </div>
+        <div class="critical-content">
+          <div class="critical-title">Scan blocked by the site's bot protection</div>
+          <div class="critical-item">
+            <span>The crawler got <strong>HTTP 403</strong> on {{ summary.blocked_403_count }} request(s). Discovery fell back to: <code>{{ summary.discovery_method }}</code> — only the homepage was reached.</span>
+          </div>
+          <div class="critical-item">
+            <span class="muted small">
+              The "0 issues" cards below are not meaningful — we couldn't actually read the site.
+              See the README's <em>Deployment to BT</em> section: this target needs an Akamai/WAF allowlist for the monitor's User-Agent or IP.
+            </span>
+          </div>
+        </div>
+      </section>
+      {% endif %}
+
+      {# --- critical alerts banner -------------------------------------- #}
+      {% if criticals %}
+      <section class="critical-banner">
+        <div class="critical-icon">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+        </div>
+        <div class="critical-content">
+          <div class="critical-title">{{ criticals|length }} critical issue{% if criticals|length != 1 %}s{% endif %} need immediate attention</div>
+          {% for c in criticals %}
+            <div class="critical-item">
+              <strong>{{ c.title }}</strong>
+              <span class="mono">{{ c.url }}</span>
+              <span class="muted">— {{ c.detail }}</span>
+            </div>
+          {% endfor %}
+        </div>
+      </section>
+      {% endif %}
+
+      {# --- health score card ------------------------------------------- #}
+      <section class="health-card health-{{ summary.status }}">
+        <div class="health-main">
+          <div class="health-score">
+            {% if summary.health_score is not none %}
+              <span class="health-value">{{ summary.health_score }}</span>
+              <span class="health-max">/ 100</span>
+            {% else %}
+              <span class="health-value">—</span>
+            {% endif %}
+          </div>
+          <div class="health-label">
+            {% if summary.status == 'blocked' %}Score unavailable — scan blocked
+            {% else %}Health score{% endif %}
+          </div>
+        </div>
+        <div class="health-bar-wrap">
+          <div class="health-bar"><div class="health-bar-fill" style="width: {{ summary.health_score or 0 }}%"></div></div>
+          <div class="health-bar-legend">
+            <span><span class="dot-sm dot-ok"></span> 80–100 healthy</span>
+            <span><span class="dot-sm dot-warn"></span> 30–79 warning</span>
+            <span><span class="dot-sm dot-critical"></span> 0–29 critical</span>
+            <span class="muted">· penalty weights: doc leak ×20 · form ×5 · slow ×4 · broken link ×3 · placeholder ×3</span>
+          </div>
+        </div>
+      </section>
+
+      {# =============================================================== #}
+      {# Category 1 — Security & Compliance                              #}
+      {# =============================================================== #}
+      <section class="category">
+        <header class="category-head">
+          <div class="category-icon" style="background:#fee2e2;color:#991b1b">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+          </div>
+          <div>
+            <h3 class="category-title">Security &amp; Compliance</h3>
+            <p class="category-desc">Highest-priority findings for a bank — exposed internal docs, WCAG legal compliance.</p>
+          </div>
+        </header>
+
+        <div class="cards cards-2">
+          <a href="#sec-docs" class="card {% if summary.doc_leaks %}card-critical{% else %}card-ok{% endif %}">
+            <div class="card-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+            </div>
+            <div class="card-body">
+              <div class="card-value">{{ summary.doc_leaks }}</div>
+              <div class="card-label">document leaks</div>
+              <div class="card-foot">{{ summary.docs_scanned }} PDF/DOCX scanned for "Uz intern"</div>
+            </div>
+          </a>
+
+          <a href="#sec-a11y" class="card {% if summary.a11y_critical %}card-critical{% elif summary.a11y_serious %}card-warn{% else %}card-ok{% endif %}">
+            <div class="card-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="8" r="1.6" fill="currentColor"/><path d="M9 12h6M10 12v6M14 12v6"/></svg>
+            </div>
+            <div class="card-body">
+              <div class="card-value">{{ (summary.a11y_critical or 0) + (summary.a11y_serious or 0) }}</div>
+              <div class="card-label">accessibility (WCAG 2 AA)</div>
+              <div class="card-foot">{{ summary.a11y_critical or 0 }} critical · {{ summary.a11y_serious or 0 }} serious — legal requirement in EU</div>
+            </div>
+          </a>
+        </div>
+
+        {# --- doc leaks detail --- #}
+        <details class="section" id="sec-docs" {% if summary.doc_leaks %}open{% endif %}>
+          <summary class="section-head">
+            <span class="section-title"><span class="dot {% if summary.doc_leaks %}dot-critical{% else %}dot-ok{% endif %}"></span>Documents linked from public pages</span>
+            <span class="count {% if summary.doc_leaks %}count-critical{% else %}count-ok{% endif %}">{{ summary.doc_leaks }} leak{% if summary.doc_leaks != 1 %}s{% endif %}</span>
+          </summary>
+          <div class="section-body">
+            {% if reports.docs and reports.docs.docs %}
+              <p class="muted small">Every PDF/DOCX linked from a public page is downloaded and scanned for markers: <code>Uz intern</code>, <code>Confidențial</code>, <code>Internal use only</code>.</p>
+              <table class="data">
+                <thead><tr><th>Document</th><th>Bytes</th><th>Matches</th></tr></thead>
+                <tbody>
+                  {% for d in reports.docs.docs %}
+                    <tr class="{% if d.markers_found %}row-critical{% endif %}">
+                      <td class="mono">{{ d.url }}</td>
+                      <td class="num">{{ '{:,}'.format(d.bytes) }}</td>
+                      <td>
+                        {% if d.markers_found %}
+                          {% for m in d.markers_found[:5] %}
+                            <div class="match"><span class="tag tag-critical">{{ m.marker }}</span><span class="muted small">…{{ m.context }}…</span></div>
+                          {% endfor %}
+                        {% else %}<span class="tag tag-ok">clean</span>{% endif %}
+                      </td>
+                    </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            {% else %}
+              <p class="muted">No documents found on the public site.</p>
+            {% endif %}
+          </div>
+        </details>
+
+        {# --- accessibility detail --- #}
+        <details class="section" id="sec-a11y" {% if summary.a11y_critical or summary.a11y_serious %}open{% endif %}>
+          <summary class="section-head">
+            <span class="section-title"><span class="dot {% if summary.a11y_critical %}dot-critical{% elif summary.a11y_serious %}dot-warn{% else %}dot-ok{% endif %}"></span>Accessibility violations (axe-core)</span>
+            <span class="count {% if summary.a11y_critical %}count-critical{% elif summary.a11y_serious %}count-warn{% else %}count-ok{% endif %}">{{ (summary.a11y_critical or 0) + (summary.a11y_serious or 0) }}</span>
+          </summary>
+          <div class="section-body">
+            {% if reports.accessibility and reports.accessibility.pages %}
+              <p class="muted small">Only <strong>critical + serious</strong> WCAG 2 AA findings — best-practice suggestions are filtered out to keep noise low.</p>
+              {% for p in reports.accessibility.pages %}
+                {% if p.violations %}
+                <div class="visual-page">
+                  <div class="visual-head">
+                    <span class="dot {% if p.critical %}dot-critical{% else %}dot-warn{% endif %}"></span>
+                    <span class="mono">{{ p.page_url }}</span>
+                    <span class="tag tag-{% if p.critical %}critical{% else %}warn{% endif %}">{{ p.critical }} crit · {{ p.serious }} serious</span>
+                  </div>
+                  <ul class="issue-list">
+                    {% for v in p.violations %}
+                      <li>
+                        <span class="tag tag-{% if v.impact == 'critical' %}critical{% else %}warn{% endif %}">{{ v.impact }}</span>
+                        <span class="badge">{{ v.id }}</span>
+                        <span>{{ v.description }}</span>
+                        <span class="muted small">— {{ v.nodeCount }} element(s)</span>
+                      </li>
+                    {% endfor %}
+                  </ul>
+                </div>
+                {% endif %}
+              {% endfor %}
+              {% if summary.a11y_critical == 0 and summary.a11y_serious == 0 %}
+                <p class="muted">No critical or serious accessibility issues — site passes WCAG 2 AA baseline.</p>
+              {% endif %}
+            {% else %}
+              <p class="muted">No data — run a scan first.</p>
+            {% endif %}
+          </div>
+        </details>
+      </section>
+
+
+      {# =============================================================== #}
+      {# Category 2 — Technical Health                                   #}
+      {# =============================================================== #}
+      <section class="category">
+        <header class="category-head">
+          <div class="category-icon" style="background:#fef3c7;color:#92400e">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>
+          </div>
+          <div>
+            <h3 class="category-title">Technical Health</h3>
+            <p class="category-desc">Broken plumbing — dead links, missing files, JavaScript errors. Things that "are bugs" in the engineering sense.</p>
+          </div>
+        </header>
+
+        <div class="cards cards-3">
+          <a href="#sec-links" class="card {% if summary.broken_links %}card-warn{% else %}card-ok{% endif %}">
+            <div class="card-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+            </div>
+            <div class="card-body">
+              <div class="card-value">{{ summary.broken_links }}</div>
+              <div class="card-label">broken links</div>
+              <div class="card-foot">of {{ summary.unique_links }} checked</div>
+            </div>
+          </a>
+
+          <a href="#sec-assets" class="card {% if summary.asset_failures %}card-warn{% else %}card-ok{% endif %}">
+            <div class="card-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+            </div>
+            <div class="card-body">
+              <div class="card-value">{{ summary.asset_failures }}</div>
+              <div class="card-label">missing assets</div>
+              <div class="card-foot">images · fonts · scripts · stylesheets</div>
+            </div>
+          </a>
+
+          <a href="#sec-console" class="card {% if summary.console_js_errors or summary.console_failed_requests %}card-warn{% else %}card-ok{% endif %}">
+            <div class="card-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
+            </div>
+            <div class="card-body">
+              <div class="card-value">{{ (summary.console_js_errors or 0) + (summary.console_failed_requests or 0) }}</div>
+              <div class="card-label">console issues</div>
+              <div class="card-foot">{{ summary.console_js_errors or 0 }} JS errors · {{ summary.console_failed_requests or 0 }} failed reqs</div>
+            </div>
+          </a>
+        </div>
+
+        {# --- broken links detail --- #}
+        <details class="section" id="sec-links" {% if summary.broken_links %}open{% endif %}>
+          <summary class="section-head">
+            <span class="section-title"><span class="dot {% if summary.broken_links %}dot-warn{% else %}dot-ok{% endif %}"></span>Broken links</span>
+            <span class="count {% if summary.broken_links %}count-warn{% else %}count-ok{% endif %}">{{ summary.broken_links }}</span>
+          </summary>
+          <div class="section-body">
+            {% if reports.links and reports.links.broken %}
+              <table class="data">
+                <thead><tr><th>Status</th><th>URL</th><th>Notes</th></tr></thead>
+                <tbody>
+                  {% for p in reports.links.broken %}
+                    <tr>
+                      <td><span class="tag tag-warn">{{ p.status or 'ERR' }}</span></td>
+                      <td class="mono">{{ p.url }}</td>
+                      <td class="muted small">{{ p.error or '' }}</td>
+                    </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            {% else %}
+              <p class="muted">No broken links detected.</p>
+            {% endif %}
+          </div>
+        </details>
+
+        {# --- assets detail --- #}
+        <details class="section" id="sec-assets" {% if summary.asset_failures %}open{% endif %}>
+          <summary class="section-head">
+            <span class="section-title"><span class="dot {% if summary.asset_failures %}dot-warn{% else %}dot-ok{% endif %}"></span>Missing assets</span>
+            <span class="count {% if summary.asset_failures %}count-warn{% else %}count-ok{% endif %}">{{ summary.asset_failures }}</span>
+          </summary>
+          <div class="section-body">
+            {% if reports.assets and reports.assets.total_failed_assets %}
+              <table class="data">
+                <thead><tr><th>Type</th><th>Status</th><th>URL</th><th>Found on</th></tr></thead>
+                <tbody>
+                  {% for t, items in reports.assets.failed_assets_by_type.items() %}
+                    {% for it in items %}
+                      <tr>
+                        <td><span class="badge">{{ t }}</span></td>
+                        <td><span class="tag tag-warn">{{ it.status or it.failure_text or '?' }}</span></td>
+                        <td class="mono">{{ it.url }}</td>
+                        <td class="mono muted small">{{ it.page_url }}</td>
+                      </tr>
+                    {% endfor %}
+                  {% endfor %}
+                </tbody>
+              </table>
+            {% else %}
+              <p class="muted">No missing assets — all images, fonts, scripts, stylesheets load successfully.</p>
+            {% endif %}
+          </div>
+        </details>
+
+        {# --- console detail --- #}
+        <details class="section" id="sec-console" {% if summary.console_js_errors or summary.console_failed_requests %}open{% endif %}>
+          <summary class="section-head">
+            <span class="section-title"><span class="dot {% if summary.console_js_errors or summary.console_failed_requests %}dot-warn{% else %}dot-ok{% endif %}"></span>JavaScript errors &amp; failed requests</span>
+            <span class="count {% if summary.console_js_errors or summary.console_failed_requests %}count-warn{% else %}count-ok{% endif %}">{{ (summary.console_js_errors or 0) + (summary.console_failed_requests or 0) }}</span>
+          </summary>
+          <div class="section-body">
+            {% if reports.console and reports.console.pages %}
+              <p class="muted small">Uncaught JS exceptions, <code>console.error()</code> messages, and network requests the page tried to make but failed (CORS, 4xx, DNS).</p>
+              {% for p in reports.console.pages %}
+                {% if p.js_errors or p.console_errors or p.failed_requests %}
+                <div class="visual-page">
+                  <div class="visual-head">
+                    <span class="dot dot-warn"></span>
+                    <span class="mono">{{ p.page_url }}</span>
+                  </div>
+                  {% if p.js_errors %}
+                    <div class="muted small" style="margin-top:6px">JS exceptions:</div>
+                    <ul class="issue-list">{% for e in p.js_errors %}<li><span class="tag tag-critical">JS</span><span class="mono small">{{ e.message }}</span></li>{% endfor %}</ul>
+                  {% endif %}
+                  {% if p.console_errors %}
+                    <div class="muted small" style="margin-top:6px">console.error:</div>
+                    <ul class="issue-list">{% for e in p.console_errors %}<li><span class="tag tag-warn">console</span><span class="mono small">{{ e.text }}</span></li>{% endfor %}</ul>
+                  {% endif %}
+                  {% if p.failed_requests %}
+                    <div class="muted small" style="margin-top:6px">Failed requests:</div>
+                    <ul class="issue-list">{% for r in p.failed_requests %}<li><span class="tag tag-warn">{{ r.resource_type }}</span><span class="mono small">{{ r.url }}</span><span class="muted small">{{ r.failure }}</span></li>{% endfor %}</ul>
+                  {% endif %}
+                </div>
+                {% endif %}
+              {% endfor %}
+              {% if summary.console_js_errors == 0 and summary.console_failed_requests == 0 %}
+                <p class="muted">No JavaScript errors or failed requests on any page.</p>
+              {% endif %}
+            {% else %}
+              <p class="muted">No data — run a scan first.</p>
+            {% endif %}
+          </div>
+        </details>
+      </section>
+
+
+      {# =============================================================== #}
+      {# Category 3 — Quality & UX                                       #}
+      {# =============================================================== #}
+      <section class="category">
+        <header class="category-head">
+          <div class="category-icon" style="background:#dbeafe;color:#1e40af">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v6.5l3-3M12 8.5l-3-3"/><path d="M5 14l-2 8h18l-2-8"/></svg>
+          </div>
+          <div>
+            <h3 class="category-title">Quality &amp; UX</h3>
+            <p class="category-desc">Things that aren't strictly bugs but make the site feel slow, sloppy, or unfinished.</p>
+          </div>
+        </header>
+
+        <div class="cards cards-4">
+          <a href="#sec-perf" class="card {% if summary.slow_pages %}card-warn{% else %}card-ok{% endif %}">
+            <div class="card-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+            </div>
+            <div class="card-body">
+              <div class="card-value">{{ summary.slow_pages }}</div>
+              <div class="card-label">slow pages</div>
+              <div class="card-foot">load &gt; {{ summary.perf_threshold_ms }} ms</div>
+            </div>
+          </a>
+
+          <a href="#sec-forms" class="card {% if summary.form_issues %}card-warn{% else %}card-ok{% endif %}">
+            <div class="card-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="9" y1="13" x2="15" y2="13"/><line x1="9" y1="17" x2="15" y2="17"/></svg>
+            </div>
+            <div class="card-body">
+              <div class="card-value">{{ summary.form_issues }}</div>
+              <div class="card-label">form issues</div>
+              <div class="card-foot">of {{ summary.total_forms }} forms</div>
+            </div>
+          </a>
+
+          <a href="#sec-seo" class="card {% if summary.seo_issues %}card-warn{% else %}card-ok{% endif %}">
+            <div class="card-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.35-4.35"/><path d="M8 11h6M11 8v6"/></svg>
+            </div>
+            <div class="card-body">
+              <div class="card-value">{{ summary.seo_issues or 0 }}</div>
+              <div class="card-label">SEO issues</div>
+              <div class="card-foot">{{ summary.seo_pages_with_issues or 0 }} pages affected</div>
+            </div>
+          </a>
+
+          <a href="#sec-content" class="card {% if summary.content_matches %}card-warn{% else %}card-ok{% endif %}">
+            <div class="card-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M4 12h16M4 18h10"/></svg>
+            </div>
+            <div class="card-body">
+              <div class="card-value">{{ summary.content_matches or 0 }}</div>
+              <div class="card-label">placeholder text</div>
+              <div class="card-foot">Lorem ipsum · TODO · [coming soon]</div>
+            </div>
+          </a>
+        </div>
+
+        {# --- performance detail --- #}
+        <details class="section" id="sec-perf" {% if summary.slow_pages %}open{% endif %}>
+          <summary class="section-head">
+            <span class="section-title"><span class="dot {% if summary.slow_pages %}dot-warn{% else %}dot-ok{% endif %}"></span>Page load performance</span>
+            <span class="count {% if summary.slow_pages %}count-warn{% else %}count-ok{% endif %}">{{ summary.slow_pages }} slow / {{ reports.performance.pages_checked if reports.performance else 0 }}</span>
+          </summary>
+          <div class="section-body">
+            {% if reports.performance %}
+              <p class="muted small">Measured in Chromium with the W3C <code>PerformanceTiming</code> API. Pages over <strong>{{ summary.perf_threshold_ms }} ms</strong> load are flagged.</p>
+              <table class="data">
+                <thead><tr><th>URL</th><th>Load</th><th>FCP</th><th>TTFB</th><th>Bytes</th></tr></thead>
+                <tbody>
+                  {% for p in reports.performance.pages %}
+                    {% set m = p.metrics %}
+                    {% set slow = m.load_ms and m.load_ms > summary.perf_threshold_ms %}
+                    <tr class="{% if slow %}row-warn{% endif %}">
+                      <td class="mono">{{ p.page_url }}</td>
+                      <td class="num"><strong>{{ m.load_ms if m.load_ms is not none else '—' }}</strong><span class="unit"> ms</span></td>
+                      <td class="num">{{ m.first_contentful_paint_ms if m.first_contentful_paint_ms is not none else '—' }}<span class="unit"> ms</span></td>
+                      <td class="num">{{ m.ttfb_ms if m.ttfb_ms is not none else '—' }}<span class="unit"> ms</span></td>
+                      <td class="num">{{ '{:,}'.format(m.transfer_bytes) if m.transfer_bytes else '—' }}</td>
+                    </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            {% endif %}
+          </div>
+        </details>
+
+        {# --- forms detail --- #}
+        <details class="section" id="sec-forms" {% if summary.form_issues %}open{% endif %}>
+          <summary class="section-head">
+            <span class="section-title"><span class="dot {% if summary.form_issues %}dot-warn{% else %}dot-ok{% endif %}"></span>Forms detected</span>
+            <span class="count {% if summary.form_issues %}count-warn{% else %}count-ok{% endif %}">{{ summary.form_issues }} issues / {{ summary.total_forms }} total</span>
+          </summary>
+          <div class="section-body">
+            {% if reports.forms and reports.forms.forms %}
+              <p class="muted small">Static analysis only — end-to-end submission requires a staging endpoint agreed with the client (to avoid creating real leads in their CRM).</p>
+              <table class="data">
+                <thead><tr><th>Method</th><th>Action</th><th>Fields</th><th>Issues</th></tr></thead>
+                <tbody>
+                  {% for f in reports.forms.forms %}
+                    <tr class="{% if f.issues %}row-warn{% endif %}">
+                      <td><span class="badge">{{ f.method }}</span></td>
+                      <td class="mono">{{ f.action_url or '(no action)' }}</td>
+                      <td>{{ f.field_count }} <span class="muted small">({{ f.required_fields }} required)</span></td>
+                      <td>
+                        {% if f.issues %}
+                          {% for i in f.issues %}<span class="tag tag-warn">{{ i }}</span>{% endfor %}
+                        {% else %}<span class="tag tag-ok">OK</span>{% endif %}
+                      </td>
+                    </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            {% else %}
+              <p class="muted">No forms found.</p>
+            {% endif %}
+          </div>
+        </details>
+
+        {# --- SEO detail --- #}
+        <details class="section" id="sec-seo" {% if summary.seo_issues %}open{% endif %}>
+          <summary class="section-head">
+            <span class="section-title"><span class="dot {% if summary.seo_issues %}dot-warn{% else %}dot-ok{% endif %}"></span>SEO health</span>
+            <span class="count {% if summary.seo_issues %}count-warn{% else %}count-ok{% endif %}">{{ summary.seo_issues or 0 }}</span>
+          </summary>
+          <div class="section-body">
+            {% if reports.seo and reports.seo.pages %}
+              <p class="muted small">Title · meta description · canonical · viewport · html lang · h1 count · Open Graph (for nice Teams/social previews).</p>
+              <table class="data">
+                <thead><tr><th>URL</th><th>Title</th><th>H1</th><th>Issues</th></tr></thead>
+                <tbody>
+                  {% for p in reports.seo.pages %}
+                    <tr class="{% if p.issues %}row-warn{% endif %}">
+                      <td class="mono">{{ p.page_url }}</td>
+                      <td class="small">{{ p.findings.title or '—' }}</td>
+                      <td>{{ p.findings.h1_count if p.findings else '—' }}</td>
+                      <td>
+                        {% if p.issues %}
+                          {% for i in p.issues %}<span class="tag tag-warn">{{ i }}</span>{% endfor %}
+                        {% else %}<span class="tag tag-ok">OK</span>{% endif %}
+                      </td>
+                    </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            {% else %}
+              <p class="muted">No data — run a scan first.</p>
+            {% endif %}
+          </div>
+        </details>
+
+        {# --- content placeholder detail --- #}
+        <details class="section" id="sec-content" {% if summary.content_matches %}open{% endif %}>
+          <summary class="section-head">
+            <span class="section-title"><span class="dot {% if summary.content_matches %}dot-warn{% else %}dot-ok{% endif %}"></span>Placeholder content</span>
+            <span class="count {% if summary.content_matches %}count-warn{% else %}count-ok{% endif %}">{{ summary.content_matches or 0 }}</span>
+          </summary>
+          <div class="section-body">
+            {% if reports.content and reports.content.pages %}
+              <p class="muted small">Visible text scanned for Lorem Ipsum, TODO, FIXME, [coming soon], [object Object], and Romanian equivalents (de completat, în lucru, text de introdus).</p>
+              {% if summary.content_matches == 0 %}
+                <p class="muted">No placeholder text found on any page.</p>
+              {% endif %}
+              {% for p in reports.content.pages %}
+                {% if p.matches %}
+                <div class="visual-page">
+                  <div class="visual-head">
+                    <span class="dot dot-warn"></span>
+                    <span class="mono">{{ p.page_url }}</span>
+                    <span class="tag tag-warn">{{ p.matches|length }} match(es)</span>
+                  </div>
+                  <ul class="issue-list">
+                    {% for m in p.matches %}
+                      <li>
+                        <span class="tag tag-{% if m.severity == 'high' %}critical{% elif m.severity == 'medium' %}warn{% else %}ok{% endif %}">{{ m.severity }}</span>
+                        <span class="badge">{{ m.marker }}</span>
+                        <span>{{ m.description }}</span>
+                        <div class="muted small" style="margin-left:32px">…{{ m.context }}…</div>
+                      </li>
+                    {% endfor %}
+                  </ul>
+                </div>
+                {% endif %}
+              {% endfor %}
+            {% else %}
+              <p class="muted">No data — run a scan first.</p>
+            {% endif %}
+          </div>
+        </details>
+      </section>
+
+
+      {# =============================================================== #}
+      {# Category 4 — AI Insights                                        #}
+      {# =============================================================== #}
+      <section class="category">
+        <header class="category-head">
+          <div class="category-icon" style="background:#ede9fe;color:#6d28d9">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 1v6M12 17v6M4.22 4.22l4.24 4.24M15.54 15.54l4.24 4.24M1 12h6M17 12h6M4.22 19.78l4.24-4.24M15.54 8.46l4.24-4.24"/></svg>
+          </div>
+          <div>
+            <h3 class="category-title">AI Insights</h3>
+            <p class="category-desc">Claude vision opens a screenshot of each sampled page and flags anything weird — layouts that broke, fonts that fell back, "any other issues we might have".</p>
+          </div>
+        </header>
+
+        <div class="cards cards-1">
+          <a href="#sec-visual" class="card {% if summary.visual_issues %}card-warn{% elif summary.visual_skipped %}card-muted{% else %}card-ok{% endif %}">
+            <div class="card-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+            </div>
+            <div class="card-body">
+              <div class="card-value">{{ summary.visual_issues or 0 }}</div>
+              <div class="card-label">AI visual issues</div>
+              <div class="card-foot">
+                {% if summary.visual_skipped %}skipped — set ANTHROPIC_API_KEY to enable{% else %}{{ summary.visual_pages_sampled }} pages sampled{% endif %}
+              </div>
+            </div>
+          </a>
+        </div>
+
+        {# --- visual detail --- #}
+        <details class="section" id="sec-visual" {% if summary.visual_issues %}open{% endif %}>
+          <summary class="section-head">
+            <span class="section-title"><span class="dot {% if summary.visual_issues %}dot-warn{% else %}dot-ok{% endif %}"></span>Claude visual check</span>
+            <span class="count {% if summary.visual_issues %}count-warn{% else %}count-ok{% endif %}">{{ summary.visual_issues or 0 }}</span>
+          </summary>
+          <div class="section-body">
+            {% if reports.visual and reports.visual.skipped %}
+              <div class="callout">
+                <strong>Skipped</strong> — set the <code>ANTHROPIC_API_KEY</code> environment variable to enable Claude vision checks. Cost is roughly <strong>$0.02 per run</strong> for a 10-page sample.
+              </div>
+            {% elif reports.visual and reports.visual.findings %}
+              <p class="muted small">Model: <code>{{ reports.visual.model }}</code> · {{ reports.visual.sampled_count }} page(s) sampled.</p>
+              {% for f in reports.visual.findings %}
+                <div class="visual-page">
+                  <div class="visual-head">
+                    <span class="dot {% if f.page_health == 'critical' %}dot-critical{% elif f.page_health == 'warn' or f.issues %}dot-warn{% else %}dot-ok{% endif %}"></span>
+                    <span class="mono">{{ f.page_url }}</span>
+                    <span class="tag tag-{% if f.page_health == 'critical' %}critical{% elif f.page_health == 'warn' %}warn{% else %}ok{% endif %}">{{ f.page_health }}</span>
+                  </div>
+                  {% if f.summary %}<div class="muted small">{{ f.summary }}</div>{% endif %}
+                  {% if f.error %}
+                    <div class="tag tag-warn">error: {{ f.error }}</div>
+                  {% elif f.issues %}
+                    <ul class="issue-list">
+                      {% for i in f.issues %}
+                        <li>
+                          <span class="tag tag-{% if i.severity == 'high' %}critical{% elif i.severity == 'medium' %}warn{% else %}ok{% endif %}">{{ i.severity }}</span>
+                          <span class="badge">{{ i.category }}</span>
+                          <span>{{ i.description }}</span>
+                          {% if i.location %}<span class="muted small">— {{ i.location }}</span>{% endif %}
+                        </li>
+                      {% endfor %}
+                    </ul>
+                  {% endif %}
+                </div>
+              {% endfor %}
+            {% else %}
+              <p class="muted">No data — run a scan first.</p>
+            {% endif %}
+          </div>
+        </details>
+      </section>
+
+
+      {# =============================================================== #}
+      {# Utility: pages discovered (always collapsed)                    #}
+      {# =============================================================== #}
+      <details class="section section-utility" id="sec-pages">
+        <summary class="section-head">
+          <span class="section-title"><span class="dot dot-ok"></span>Pages discovered <span class="muted small">(crawler output)</span></span>
+          <span class="count count-ok">{{ summary.pages }}</span>
+        </summary>
+        <div class="section-body">
+          {% if reports.sitemap %}
+            <p class="muted small">Discovered via <code>{{ summary.discovery_method }}</code>. Every check below ran against these URLs.</p>
+            <table class="data">
+              <thead><tr><th>URL</th></tr></thead>
+              <tbody>
+                {% for u in reports.sitemap.page_urls %}<tr><td class="mono">{{ u }}</td></tr>{% endfor %}
+              </tbody>
+            </table>
+          {% endif %}
+        </div>
+      </details>
+
+      <div class="row-actions">
+        <form method="post" action="/clear" onsubmit="return confirm('Delete all current reports?')">
+          <button type="submit" class="btn btn-ghost btn-danger">Clear reports</button>
+        </form>
+      </div>
+
+      {% else %}
+
+      {# --- empty state ------------------------------------------------- #}
+      <section class="empty">
+        {% if summary.pages == 0 and summary.generated_at %}
+          <div class="empty-icon" style="background: var(--warn-soft); color: var(--warn-dark)">
+            <svg width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+          </div>
+          <h2>The last scan discovered 0 pages</h2>
+          <p>This usually means the site has no <code>sitemap.xml</code> and the homepage either failed to load or has no same-origin links to follow.</p>
+          <p class="muted small">Try clicking <strong>Run all checks</strong> again — the crawler falls back to a BFS walk from the homepage if no sitemap is found.</p>
+        {% else %}
+          <div class="empty-icon">
+            <svg width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+          </div>
+          <h2>Ready to scan {{ base_url }}</h2>
+          <p>Click <strong>Run all checks</strong> above. Eleven checks, ~3–5 minutes.</p>
+          <p class="muted small">Discovery → broken links → performance → assets → forms → docs → accessibility → SEO → console → content → AI visual.</p>
+        {% endif %}
+      </section>
+
+      {% endif %}
+
+    </div>
+  </section>
+
 
   <footer>
-    <span>BT Monitor</span> · <span class="muted">v1 · 7 checks · {{ reports.sitemap.page_urls|length if reports.sitemap else 0 }} pages indexed</span>
+    <span>BT Monitor</span> · <span class="muted">v1 · 11 checks + live watcher · {{ reports.sitemap.page_urls|length if reports.sitemap else 0 }} pages indexed · change target via <code>BT_MONITOR_BASE_URL</code> env var or the UI</span>
   </footer>
 
 </main>
 
+
 <script>
-  // Polling — refresh the page when the run finishes.
+  // ====================================================================
+  // Deep-scan run state polling
+  // ====================================================================
   const banner = document.getElementById("running-banner");
   const stepEl = document.getElementById("current-step");
   const doneEl = document.getElementById("completed-count");
@@ -638,12 +934,11 @@
   }
   poll();
 
-  // Open target panel automatically if user starts editing the URL.
   document.querySelector("form[action='/run']")?.addEventListener("submit", () => {
     banner?.classList.remove("hidden");
   });
 
-  // Format the last-scanned ISO timestamp as relative time.
+  // Format "last scanned" timestamp as relative time.
   (function formatRelative() {
     const el = document.getElementById("last-scanned");
     if (!el || !el.dataset.iso) return;
@@ -672,7 +967,6 @@
   const notifBtn    = document.getElementById("enable-notif");
 
   let knownAlertIds = new Set();
-  let lastLiveState = liveSection.dataset.lastState || "{{ live.state }}";
 
   function fmtAgo(unixTs) {
     if (!unixTs) return "—";
@@ -685,12 +979,10 @@
   function drawSparkline(pings) {
     sparkG.innerHTML = "";
     if (!pings.length) return;
-    // Show up to 60 bars across the 600-wide viewBox.
     const N = Math.min(pings.length, 60);
     const start = pings.length - N;
     const barW = 600 / N;
     const colors = { up: "#10b981", slow: "#f59e0b", down: "#ef4444", unknown: "#cbd5e1" };
-    // Bar height = scaled response_ms (cap at 5000ms = full height).
     for (let i = 0; i < N; i++) {
       const p = pings[start + i];
       const ms = Math.max(p.response_ms || 0, 80);
@@ -704,10 +996,10 @@
       r.setAttribute("height", h.toFixed(2));
       r.setAttribute("fill", colors[p.state] || "#cbd5e1");
       r.setAttribute("rx", "1");
-      const title = document.createElementNS("http://www.w3.org/2000/svg", "title");
+      const t = document.createElementNS("http://www.w3.org/2000/svg", "title");
       const when = new Date(p.ts * 1000).toLocaleTimeString();
-      title.textContent = `${when} · ${p.state.toUpperCase()} · HTTP ${p.status ?? "—"} · ${p.response_ms ?? "—"} ms`;
-      r.appendChild(title);
+      t.textContent = `${when} · ${p.state.toUpperCase()} · HTTP ${p.status ?? "—"} · ${p.response_ms ?? "—"} ms`;
+      r.appendChild(t);
       sparkG.appendChild(r);
     }
   }
@@ -737,9 +1029,8 @@
       const id = `${a.ts}-${a.url}-${a.to}`;
       if (knownAlertIds.has(id)) continue;
       knownAlertIds.add(id);
-      // Skip alerts that existed on initial page load — only notify on NEW ones.
       if (!window.__liveBooted) continue;
-      const title = a.severity === "critical" ? "🔴 Site DOWN"
+      const title = a.severity === "critical" ? "🔴 Site UNREACHABLE"
                   : a.severity === "warn"     ? "🟠 Site SLOW"
                   : a.severity === "recovery" ? "🟢 Site recovered"
                   : "BT Monitor";
@@ -747,48 +1038,63 @@
     }
   }
 
+  function renderExtras(extras) {
+    const list = document.getElementById("live-extras-list");
+    if (!list) return;
+    if (!extras.length) {
+      list.innerHTML = '<div class="muted small empty-extras">No extra targets yet — add one above to monitor multiple domains at once.</div>';
+      return;
+    }
+    const labels = {up:"REACHABLE", slow:"SLOW", down:"UNREACHABLE", unknown:"…"};
+    list.innerHTML = extras.map(ex => `
+      <div class="live-extra live-extra-${ex.state}" data-url="${ex.target}">
+        <span class="led led-${ex.state} led-sm"></span>
+        <span class="mono small live-extra-url">${ex.target}</span>
+        <span class="muted small">${labels[ex.state] || ex.state}</span>
+        <span class="muted small">HTTP ${ex.last_status ?? "—"}</span>
+        <span class="muted small">${ex.last_response_ms ?? "—"} ms</span>
+        <span class="muted small">uptime ${ex.uptime_24h_pct ?? "—"}%</span>
+        <form method="post" action="/live/remove" class="live-extra-remove">
+          <input type="hidden" name="url" value="${ex.target}">
+          <button type="submit" title="Stop watching this URL" aria-label="Remove">×</button>
+        </form>
+      </div>
+    `).join("");
+  }
+
   async function pollLive() {
     try {
       const r = await fetch("/api/uptime", { cache: "no-store" });
-      const s = await r.json();
+      const data = await r.json();
+      const s = data.primary || data;   // gracefully handle old shape
       const stateText = {up:"REACHABLE", slow:"SLOW", down:"UNREACHABLE", unknown:"CHECKING…"}[s.state || "unknown"] || (s.state || "unknown").toUpperCase();
       stateLabel.textContent = stateText;
       statusEl.textContent   = "HTTP " + (s.last_status ?? "—");
       rtEl.textContent       = (s.last_response_ms ?? "—") + " ms";
       uptimeEl.textContent   = (s.uptime_24h_pct ?? "—") + "%";
       agoEl.textContent      = fmtAgo(s.last_seen_ts);
-      // Recolor section + LED.
       liveSection.className  = "live live-" + (s.state || "unknown");
       drawSparkline(s.pings || []);
       renderAlerts(s.alerts || []);
       maybeNotify(s.alerts || []);
-      lastLiveState = s.state;
-    } catch (e) {
-      // network blip — try again
-    }
+      renderExtras(data.extras || []);
+    } catch (e) { /* network blip — retry */ }
     setTimeout(pollLive, 5000);
   }
 
-  // Seed sparkline from server-rendered data on first paint.
   drawSparkline({{ live.pings | tojson }});
   agoEl.textContent = fmtAgo({{ live.last_seen_ts }});
-  // Capture existing alert IDs so we don't notify the user about history.
-  for (const a of {{ live.alerts | tojson }}) {
-    knownAlertIds.add(`${a.ts}-${a.url}-${a.to}`);
-  }
+  for (const a of {{ live.alerts | tojson }}) { knownAlertIds.add(`${a.ts}-${a.url}-${a.to}`); }
   window.__liveBooted = true;
   pollLive();
 
   notifBtn?.addEventListener("click", async () => {
-    if (!("Notification" in window)) {
-      alert("Browser doesn't support desktop notifications.");
-      return;
-    }
+    if (!("Notification" in window)) { alert("Browser doesn't support desktop notifications."); return; }
     const perm = await Notification.requestPermission();
     if (perm === "granted") {
       notifBtn.textContent = "Alerts on";
       notifBtn.disabled = true;
-      new Notification("BT Monitor alerts enabled", { body: "You'll get a popup if the site goes down or slow." });
+      new Notification("BT Monitor alerts enabled", { body: "You'll get a popup if a watched site goes down or slow." });
     }
   });
   if (Notification && Notification.permission === "granted") {

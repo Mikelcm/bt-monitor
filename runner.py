@@ -39,6 +39,10 @@ from checks.performance import main as run_performance
 from checks.assets import main as run_assets
 from checks.forms import main as run_forms
 from checks.docs import main as run_docs
+from checks.accessibility import main as run_accessibility
+from checks.seo import main as run_seo
+from checks.console_errors import main as run_console
+from checks.content import main as run_content
 from checks.visual import main as run_visual
 
 DATA = ROOT / DATA_DIR
@@ -60,13 +64,17 @@ def read_state() -> dict:
 
 
 STEPS = [
-    ("crawler",     "Discover pages from sitemap",      run_crawler),
-    ("links",       "Check for broken links",           run_links),
-    ("performance", "Measure page load performance",    run_performance),
-    ("assets",      "Detect missing images/fonts",      run_assets),
-    ("forms",       "Detect form issues",               run_forms),
-    ("docs",        "Scan documents for 'Uz intern'",   run_docs),
-    ("visual",      "AI visual check (Claude vision)",  run_visual),
+    ("crawler",       "Discover pages from sitemap",          run_crawler),
+    ("links",         "Check for broken links",               run_links),
+    ("performance",   "Measure page load performance",        run_performance),
+    ("assets",        "Detect missing images/fonts",          run_assets),
+    ("forms",         "Detect form issues",                   run_forms),
+    ("docs",          "Scan documents for 'Uz intern'",       run_docs),
+    ("accessibility", "WCAG 2 AA accessibility (axe-core)",   run_accessibility),
+    ("seo",           "SEO health (meta, headings, canonical)", run_seo),
+    ("console",       "JS errors + failed requests",          run_console),
+    ("content",       "Placeholder content (Lorem Ipsum etc.)", run_content),
+    ("visual",        "AI visual check (Claude vision)",      run_visual),
 ]
 
 
@@ -115,8 +123,12 @@ async def run_all() -> dict:
     print(f"DONE in {state['total_duration_s']}s — target {BASE_URL}")
     print(f"Pages: {summary['pages']}  Broken links: {summary['broken_links']}  "
           f"Slow pages: {summary['slow_pages']}  Asset fails: {summary['asset_failures']}  "
-          f"Form issues: {summary['form_issues']}  Doc leaks: {summary['doc_leaks']}  "
-          f"Visual issues: {summary['visual_issues']}")
+          f"Form issues: {summary['form_issues']}  Doc leaks: {summary['doc_leaks']}")
+    print(f"  A11y: {summary['a11y_critical']} crit / {summary['a11y_serious']} serious  "
+          f"SEO: {summary['seo_issues']}  "
+          f"JS errors: {summary['console_js_errors']}  "
+          f"Failed reqs: {summary['console_failed_requests']}  "
+          f"Visual: {summary['visual_issues']}")
     print(f"Summary: {DATA / 'summary.json'}")
     return summary
 
@@ -138,6 +150,10 @@ def build_summary() -> dict:
     assets = load("assets_report.json")
     forms = load("forms_report.json")
     docs = load("docs_report.json")
+    a11y = load("accessibility_report.json")
+    seo = load("seo_report.json")
+    console = load("console_report.json")
+    content = load("content_report.json")
     visual = load("visual_report.json")
 
     # How was the page set discovered? Used by the dashboard to surface when
@@ -166,6 +182,16 @@ def build_summary() -> dict:
         "form_issues": forms.get("forms_with_issues", 0),
         "docs_scanned": docs.get("docs_found", 0),
         "doc_leaks": docs.get("leaks_found", 0),
+        "a11y_critical": a11y.get("total_critical", 0),
+        "a11y_serious":  a11y.get("total_serious", 0),
+        "a11y_pages_with_issues": a11y.get("pages_with_issues", 0),
+        "seo_issues":   seo.get("total_issues", 0),
+        "seo_pages_with_issues": seo.get("pages_with_issues", 0),
+        "console_js_errors":      console.get("total_js_errors", 0),
+        "console_errors":         console.get("total_console_errors", 0),
+        "console_failed_requests": console.get("total_failed_requests", 0),
+        "content_matches": content.get("total_matches", 0),
+        "content_pages_with_issues": content.get("pages_with_issues", 0),
         "visual_skipped": visual.get("skipped", True),
         "visual_pages_sampled": visual.get("sampled_count", 0),
         "visual_issues": visual.get("total_issues", 0),
@@ -177,6 +203,12 @@ def build_summary() -> dict:
         + summary["asset_failures"] * 2
         + summary["form_issues"] * 5
         + summary["doc_leaks"] * 20
+        + summary["a11y_critical"] * 4
+        + summary["a11y_serious"] * 2
+        + summary["seo_issues"] * 1
+        + summary["console_js_errors"] * 2
+        + summary["console_failed_requests"] * 1
+        + summary["content_matches"] * 3
         + summary["visual_issues"] * 2
     )
     summary["health_score"] = max(0, 100 - penalty)

@@ -33,6 +33,7 @@ from bs4 import BeautifulSoup
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 from config import BASE_URL, SITEMAP_URL, USER_AGENT, CRAWL_TIMEOUT_MS, DATA_DIR
+from helpers.cookies import dismiss_cookies
 
 try:
     sys.stdout.reconfigure(encoding="utf-8")
@@ -234,6 +235,7 @@ async def discover() -> CrawlResult:
         warm = await context.new_page()
         try:
             r = await warm.goto(BASE_URL, timeout=CRAWL_TIMEOUT_MS, wait_until="domcontentloaded")
+            await dismiss_cookies(warm)
             print(f"[warm-up] {BASE_URL} -> {r.status if r else 'no_response'}", flush=True)
         except Exception as exc:
             print(f"[warm-up] failed: {exc!r}", flush=True)
