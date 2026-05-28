@@ -42,8 +42,8 @@ from checks.docs import main as run_docs
 from checks.accessibility import main as run_accessibility
 from checks.seo import main as run_seo
 from checks.console_errors import main as run_console
-from checks.content import main as run_content
-from checks.visual import main as run_visual
+from db.persist import persist_run
+from monitoring.incident_alerts import hub as alert_hub
 
 DATA = ROOT / DATA_DIR
 STATE_FILE = DATA / "_run_state.json"
@@ -73,8 +73,6 @@ STEPS = [
     ("accessibility", "WCAG 2 AA accessibility (axe-core)",   run_accessibility),
     ("seo",           "SEO health (meta, headings, canonical)", run_seo),
     ("console",       "JS errors + failed requests",          run_console),
-    ("content",       "Placeholder content (Lorem Ipsum etc.)", run_content),
-    ("visual",        "AI visual check (Claude vision)",      run_visual),
 ]
 
 
@@ -119,6 +117,29 @@ async def run_all() -> dict:
         json.dumps(summary, indent=2, ensure_ascii=False), encoding="utf-8"
     )
 
+    try:
+        persist_stats = persist_run(BASE_URL, summary, state)
+        print(
+            f"[db] run #{persist_stats['run_id']} persisted — "
+            f"new={persist_stats['new']} still_open={persist_stats['still_open']} "
+            f"reopened={persist_stats['reopened']} resolved={persist_stats['resolved']}",
+            flush=True,
+        )
+        events = persist_stats.get("events") or []
+        if events:
+            alert_stats = alert_hub.fire_batch(events)
+            print(
+                f"[alerts] {alert_stats['recorded']} event(s) — "
+                f"dispatched={alert_stats['dispatched']} skipped={alert_stats['skipped']} "
+                f"channel_errors={alert_stats['channel_errors']}",
+                flush=True,
+            )
+    except Exception as exc:
+        tb = traceback.format_exc()
+        print(f"!! db persist failed: {exc}\n{tb}", flush=True)
+        state.setdefault("errors", []).append({"step": "db_persist", "error": repr(exc), "traceback": tb})
+        write_state(state)
+
     print(f"\n{'='*70}")
     print(f"DONE in {state['total_duration_s']}s — target {BASE_URL}")
     print(f"Pages: {summary['pages']}  Broken links: {summary['broken_links']}  "
@@ -127,8 +148,7 @@ async def run_all() -> dict:
     print(f"  A11y: {summary['a11y_critical']} crit / {summary['a11y_serious']} serious  "
           f"SEO: {summary['seo_issues']}  "
           f"JS errors: {summary['console_js_errors']}  "
-          f"Failed reqs: {summary['console_failed_requests']}  "
-          f"Visual: {summary['visual_issues']}")
+          f"Failed reqs: {summary['console_failed_requests']}")
     print(f"Summary: {DATA / 'summary.json'}")
     return summary
 
@@ -153,8 +173,6 @@ def build_summary() -> dict:
     a11y = load("accessibility_report.json")
     seo = load("seo_report.json")
     console = load("console_report.json")
-    content = load("content_report.json")
-    visual = load("visual_report.json")
 
     # How was the page set discovered? Used by the dashboard to surface when
     # the scan was effectively blocked (only the homepage got through).
@@ -190,11 +208,6 @@ def build_summary() -> dict:
         "console_js_errors":      console.get("total_js_errors", 0),
         "console_errors":         console.get("total_console_errors", 0),
         "console_failed_requests": console.get("total_failed_requests", 0),
-        "content_matches": content.get("total_matches", 0),
-        "content_pages_with_issues": content.get("pages_with_issues", 0),
-        "visual_skipped": visual.get("skipped", True),
-        "visual_pages_sampled": visual.get("sampled_count", 0),
-        "visual_issues": visual.get("total_issues", 0),
     }
     # Overall health score: 100 minus weighted penalties.
     penalty = (
@@ -208,8 +221,6 @@ def build_summary() -> dict:
         + summary["seo_issues"] * 1
         + summary["console_js_errors"] * 2
         + summary["console_failed_requests"] * 1
-        + summary["content_matches"] * 3
-        + summary["visual_issues"] * 2
     )
     summary["health_score"] = max(0, 100 - penalty)
     # If we didn't discover any pages, the scan effectively failed — don't

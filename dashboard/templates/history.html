@@ -1,0 +1,71 @@
+{% extends "_base.html" %}
+{% from '_icons.html' import icon %}
+{% block title %}Istoric scan-uri — BT Monitor{% endblock %}
+{% block page_title %}Istoric scan-uri{% endblock %}
+{% block page_subtitle %}
+  <div class="page-subtitle">Fiecare rulare a scan-ului complet, cu rezultate. Click pe o linie pentru detalii.</div>
+{% endblock %}
+{% block page_actions %}
+  <a href="/reports" class="btn">{{ icon('download', 14) }} Export</a>
+{% endblock %}
+
+{% block content %}
+
+  <div class="card" style="margin-bottom: 16px;">
+    <div class="card-header">
+      <div>
+        <div class="card-title">{{ runs|length }} scan-uri în istoric</div>
+        <div class="card-sub">pentru țintă {{ base_url }}</div>
+      </div>
+    </div>
+    <div class="card-body flush">
+      {% if runs %}
+        <table class="table">
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>Țintă</th>
+              <th>Început</th>
+              <th>Durată</th>
+              <th>Status</th>
+              <th class="num">Health</th>
+              <th>Acțiuni</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for r in runs %}
+              <tr>
+                <td class="mono">#{{ r.id }}</td>
+                <td class="mono" style="font-size:12px">{{ r.base_url }}</td>
+                <td class="mono" style="font-size:12px">{{ r.started_at | dt_ro }}</td>
+                <td class="mono">{{ r.duration_s }}s</td>
+                <td>
+                  {% if r.status == 'critical' %}
+                    <span class="pill pill-critical"><span class="pill-dot"></span>critic</span>
+                  {% elif r.status == 'warn' %}
+                    <span class="pill pill-warn"><span class="pill-dot"></span>avertisment</span>
+                  {% elif r.status == 'healthy' %}
+                    <span class="pill pill-ok"><span class="pill-dot"></span>sănătos</span>
+                  {% elif r.status == 'blocked' %}
+                    <span class="pill pill-critical"><span class="pill-dot"></span>blocat</span>
+                  {% else %}
+                    <span class="pill pill-muted"><span class="pill-dot"></span>{{ r.status }}</span>
+                  {% endif %}
+                </td>
+                <td class="num mono"><strong>{{ r.health_score if r.health_score is not none else '—' }}</strong></td>
+                <td><a href="/history/{{ r.id }}" class="btn btn-ghost btn-sm">Detalii {{ icon('chevron-right', 12) }}</a></td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      {% else %}
+        <div class="empty">
+          <div class="empty-emoji">∅</div>
+          <div class="empty-title">Niciun scan în istoric</div>
+          <div class="empty-sub">Rulează un scan din Privire generală pentru a popula istoricul.</div>
+        </div>
+      {% endif %}
+    </div>
+  </div>
+
+{% endblock %}

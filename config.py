@@ -11,8 +11,12 @@ For LIVE override (dashboard subprocess), the dashboard launches `runner.py`
 as a fresh subprocess so config.py re-evaluates with the new override file.
 """
 import json
+import logging
 import os
+from datetime import datetime, timezone
 from pathlib import Path
+
+log = logging.getLogger("config")
 
 # Default if nothing else is set.
 DEFAULT_BASE_URL = "https://www.resetmedia.ro"
@@ -40,14 +44,55 @@ def get_base_url() -> str:
     return DEFAULT_BASE_URL.rstrip("/")
 
 
-def set_base_url(url: str) -> None:
-    """Persist a new target URL and add it to the recent list."""
-    url = url.strip().rstrip("/")
+def _validate_url(url: str) -> str | None:
+    """Return a clean URL or None if invalid. Adds https:// if missing.
+    Rejects empty strings and URLs without a hostname."""
+    url = (url or "").strip().rstrip("/")
     if not url:
-        return
+        return None
+    if not url.startswith(("http://", "https://")):
+        url = "https://" + url
+    from urllib.parse import urlparse
+    try:
+        p = urlparse(url)
+        if not p.netloc:
+            return None
+    except Exception:
+        return None
+    return url
+
+
+def set_base_url(url: str) -> bool:
+    """Persist a new target URL. Returns True on success, False on invalid input.
+
+    Atomic write (write to temp file then rename) to avoid corruption if the
+    process dies mid-write. Stamps changed_at so the UI can show 'last changed'.
+    """
+    clean = _validate_url(url)
+    if clean is None:
+        log.warning("set_base_url rejected invalid URL: %r", url)
+        return False
     _OVERRIDE_FILE.parent.mkdir(parents=True, exist_ok=True)
-    _OVERRIDE_FILE.write_text(json.dumps({"base_url": url}), encoding="utf-8")
-    _push_recent(url)
+    payload = {
+        "base_url": clean,
+        "changed_at": datetime.now(timezone.utc).isoformat(),
+    }
+    tmp = _OVERRIDE_FILE.with_suffix(".json.tmp")
+    tmp.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    tmp.replace(_OVERRIDE_FILE)
+    _push_recent(clean)
+    log.info("base_url -> %s", clean)
+    return True
+
+
+def get_target_changed_at() -> str | None:
+    if not _OVERRIDE_FILE.exists():
+        return None
+    try:
+        data = json.loads(_OVERRIDE_FILE.read_text(encoding="utf-8"))
+        return data.get("changed_at")
+    except Exception:
+        return None
 
 
 def get_recent_targets(limit: int = 6) -> list[str]:

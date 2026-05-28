@@ -36,6 +36,7 @@ sys.path.insert(0, str(ROOT))
 from config import USER_AGENT, get_base_url
 from monitoring.alerts import AlertEvent, AlertHub
 from monitoring.store import UptimeStore
+from monitoring.uptime_persist import handle_state_change, record_probe
 
 log = logging.getLogger("monitoring.watcher")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s  %(levelname)s  %(name)s  %(message)s")
@@ -205,6 +206,8 @@ class Watcher:
 
         # Persist every ping (downsampled later via 24h cutoff in store).
         self.store.record_ping(url, probe_state, status, response_ms, error)
+        # Also persist to DB for long-term SLA + incident generation.
+        record_probe(url, probe_state, status, response_ms, error)
 
         # Hysteresis — change the OFFICIAL state only after N matching probes.
         n_needed = max(1, WATCHER_HYSTERESIS)
@@ -223,6 +226,11 @@ class Watcher:
                 from_state=old, to_state=new,
                 message=msg, status=status, response_ms=response_ms,
             ))
+            # Open / close DB incident for this state change.
+            try:
+                handle_state_change(url, old, new, status, response_ms, error, msg)
+            except Exception as exc:
+                log.warning("uptime incident hook failed: %r", exc)
             log.info("STATE %s : %s -> %s (%s)", url, old, new, msg)
 
 

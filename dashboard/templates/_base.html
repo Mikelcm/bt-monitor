@@ -1,0 +1,108 @@
+{% from '_icons.html' import icon %}
+<!doctype html>
+<html lang="ro">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}BT Monitor{% endblock %}</title>
+  <link rel="stylesheet" href="/static/app.css">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%230f172a'/%3E%3Ctext x='32' y='44' font-family='system-ui' font-size='30' font-weight='800' text-anchor='middle' fill='white'%3EBT%3C/text%3E%3C/svg%3E">
+  {% block head_extra %}{% endblock %}
+</head>
+<body>
+
+<aside class="sidebar">
+  <div class="sidebar-brand">
+    <div class="brand-logo">BT</div>
+    <div class="brand-text">
+      <div class="brand-title">Monitor</div>
+      <div class="brand-sub">Website health</div>
+    </div>
+  </div>
+
+  <nav class="sidebar-nav">
+    <a href="/" class="nav-item {% if active == 'overview' %}is-active{% endif %}">
+      <span class="nav-ico">{{ icon('overview', 18) }}</span>
+      <span class="nav-label">Privire generală</span>
+    </a>
+    <a href="/incidents" class="nav-item {% if active == 'incidents' %}is-active{% endif %}">
+      <span class="nav-ico">{{ icon('alert', 18) }}</span>
+      <span class="nav-label">Incidente</span>
+      {% if nav_open_count and nav_open_count > 0 %}
+        <span class="nav-badge nav-badge-critical">{{ nav_open_count }}</span>
+      {% endif %}
+    </a>
+    <a href="/history" class="nav-item {% if active == 'history' %}is-active{% endif %}">
+      <span class="nav-ico">{{ icon('history', 18) }}</span>
+      <span class="nav-label">Istoric scan-uri</span>
+    </a>
+    <a href="/live" class="nav-item {% if active == 'live' %}is-active{% endif %}">
+      <span class="nav-ico">{{ icon('live', 18) }}</span>
+      <span class="nav-label">Monitorizare live</span>
+    </a>
+    <a href="/reports" class="nav-item {% if active == 'reports' %}is-active{% endif %}">
+      <span class="nav-ico">{{ icon('download', 18) }}</span>
+      <span class="nav-label">Rapoarte / Export</span>
+    </a>
+    <a href="/settings" class="nav-item {% if active == 'settings' %}is-active{% endif %}">
+      <span class="nav-ico">{{ icon('settings', 18) }}</span>
+      <span class="nav-label">Setări</span>
+    </a>
+  </nav>
+
+  <div class="sidebar-foot">
+    <div class="foot-row">
+      <span class="foot-label">Țintă curentă</span>
+    </div>
+    <div class="foot-value">{{ base_url }}</div>
+  </div>
+</aside>
+
+<main class="main">
+
+  {# ----------------- GLOBAL STATUS BAR (persistent) ----------------- #}
+  {% if global_status %}
+    <div class="status-bar status-bar-{{ global_status.tone }}">
+      <div class="status-bar-inner">
+        <div class="status-bar-left">
+          <span class="led led-{{ global_status.led_state }}"></span>
+          <span class="status-bar-text">
+            <strong>{{ global_status.title }}</strong>
+            <span class="muted">· {{ global_status.detail }}</span>
+          </span>
+        </div>
+        <div class="status-bar-right">
+          {% if global_status.last_scan_text %}
+            <span class="status-bar-meta">{{ icon('clock', 14) }} ultim scan: {{ global_status.last_scan_text }}</span>
+          {% endif %}
+          {% if global_status.open_critical > 0 %}
+            <a href="/incidents?status=open&severity=critical" class="status-bar-link">
+              {{ icon('alert', 14) }} {{ global_status.open_critical }} critice
+            </a>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+  {% endif %}
+
+  <header class="page-header">
+    <div class="page-header-inner">
+      <div class="page-header-left">
+        <h1 class="page-title">{% block page_title %}{% endblock %}</h1>
+        {% block page_subtitle %}{% endblock %}
+      </div>
+      <div class="page-header-right">
+        {% block page_actions %}{% endblock %}
+      </div>
+    </div>
+  </header>
+
+  <div class="page-body">
+    {% block content %}{% endblock %}
+  </div>
+</main>
+
+{% block scripts %}{% endblock %}
+
+</body>
+</html>

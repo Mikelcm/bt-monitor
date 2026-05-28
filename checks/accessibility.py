@@ -149,8 +149,11 @@ async def check_accessibility(page_urls: list[str]) -> dict:
         for url in page_urls:
             print(f"[a11y] {url}", flush=True)
             r = await check_one(context, url)
-            if r.error:
-                print(f"   [ERROR] {r.error[:120]}", flush=True)
+            if r.error == "axe_not_loaded":
+                # Common on minimal HTML pages — not a real failure, just a no-op.
+                print(f"   [info] axe could not load on this page (likely minimal HTML)", flush=True)
+            elif r.error:
+                print(f"   [warn] {r.error[:120]}", flush=True)
             else:
                 print(f"   crit={r.critical_count} serious={r.serious_count} "
                       f"passes={r.passes_count} incomplete={r.incomplete_count}",

@@ -3,9 +3,8 @@
 For the local demo we currently dispatch to:
   * the dashboard's in-memory event log (shown in the UI banner)
   * (optional) a Microsoft Teams webhook if BT_MONITOR_TEAMS_WEBHOOK is set
-  * (optional) a Slack-compatible webhook if BT_MONITOR_SLACK_WEBHOOK is set
 
-The Teams / Slack paths are best-effort — failures are logged and do NOT
+The Teams path is best-effort — failures are logged and do NOT
 interrupt the watcher loop.
 """
 from __future__ import annotations
@@ -62,9 +61,11 @@ class AlertHub:
             if len(self._events) > self._ring_size:
                 self._events = self._events[-self._ring_size:]
         log.warning("ALERT %s", event.human())
-        # Fan out to webhooks (best-effort, in parallel, never raises).
-        coros = [self._send_teams(event), self._send_slack(event)]
-        await asyncio.gather(*coros, return_exceptions=True)
+        # Fan out to webhooks (best-effort, never raises).
+        try:
+            await self._send_teams(event)
+        except Exception as exc:
+            log.warning("Teams webhook failed: %r", exc)
 
     def recent(self) -> list[AlertEvent]:
         return list(reversed(self._events))   # newest first
@@ -99,18 +100,3 @@ class AlertHub:
         except Exception as exc:
             log.warning("Teams webhook failed: %r", exc)
 
-    async def _send_slack(self, event: AlertEvent) -> None:
-        url = os.environ.get("BT_MONITOR_SLACK_WEBHOOK")
-        if not url:
-            return
-        emoji = {"critical": ":red_circle:", "warn": ":large_orange_diamond:",
-                 "recovery": ":large_green_circle:", "info": ":white_circle:"}[event.severity]
-        payload = {
-            "text": f"{emoji} *BT Monitor* — {event.url}\n"
-                    f"{event.from_state} → {event.to_state} · {event.message}",
-        }
-        try:
-            async with httpx.AsyncClient(timeout=10) as c:
-                await c.post(url, json=payload)
-        except Exception as exc:
-            log.warning("Slack webhook failed: %r", exc)

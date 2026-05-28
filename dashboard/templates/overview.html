@@ -1,0 +1,308 @@
+{% extends "_base.html" %}
+{% from '_icons.html' import icon %}
+{% block title %}Privire generală — BT Monitor{% endblock %}
+{% block page_title %}Privire generală{% endblock %}
+{% block page_subtitle %}
+  <div class="page-subtitle">Stare site monitorizat, ultimul scan, incidente prioritare.</div>
+{% endblock %}
+
+{% block page_actions %}
+  {% if not scan_running %}
+    <form method="post" action="/run" style="margin:0">
+      <button type="submit" class="btn btn-primary">{{ icon('play', 14) }} Rulează scan complet</button>
+    </form>
+  {% endif %}
+{% endblock %}
+
+{% block content %}
+
+  {# ---------------------------- DOC LEAK CRITICAL BANNER ---------------------------- #}
+  {% for c in criticals %}
+    <div class="alert-ribbon">
+      <div class="alert-ribbon-ico">{{ icon('shield', 18) }}</div>
+      <div class="alert-ribbon-body">
+        <div class="alert-ribbon-title">{{ c.title }}</div>
+        <div class="alert-ribbon-text">
+          <span class="mono">{{ c.url }}</span>
+          {% if c.detail %} · markers: {{ c.detail }}{% endif %}
+        </div>
+      </div>
+      <a class="btn btn-critical btn-sm" href="/incidents?status=open&severity=critical">{{ icon('arrow-right', 14) }} Vezi incidentul</a>
+    </div>
+  {% endfor %}
+
+  {# ---------------------------- RUN PROGRESS ---------------------------- #}
+  {% if scan_running %}
+    <div class="run-progress" id="run-progress">
+      <div class="run-progress-spinner"></div>
+      <div class="run-progress-text">
+        <span class="run-progress-step" id="rp-step">{{ run_state.current_step or 'începe…' }}</span>
+        <span class="run-progress-sub" id="rp-sub">· pas {{ run_state.completed_steps|length + 1 }} din 9</span>
+      </div>
+    </div>
+  {% endif %}
+
+  {# ---------------------------- HERO: DONUT + STATS ---------------------------- #}
+  {% set score = summary.health_score %}
+  {% set score_class = 'is-muted' %}
+  {% if score is not none %}
+    {% if summary.status == 'critical' %}{% set score_class = 'is-critical' %}
+    {% elif summary.status == 'warn' %}{% set score_class = 'is-warn' %}
+    {% elif summary.status == 'healthy' %}{% set score_class = 'is-ok' %}
+    {% endif %}
+  {% endif %}
+  {% set pct = (score | int) if score is not none else 0 %}
+  {# circumference of r=88 circle: 2*pi*88 = 553 #}
+  {% set dash = (553 * pct / 100) %}
+  {% set offset = (553 - dash) %}
+
+  <div class="card" style="margin-bottom: 18px;">
+    <div class="overview-hero">
+
+      <div class="donut-wrap">
+        <svg class="donut-svg" viewBox="0 0 200 200">
+          <circle class="donut-track" cx="100" cy="100" r="88"/>
+          <circle class="donut-fill {{ score_class }}" cx="100" cy="100" r="88"
+                  stroke-dasharray="{{ dash }} 553" stroke-dashoffset="0"/>
+        </svg>
+        <div class="donut-center">
+          <div class="donut-num {{ score_class }}">{{ score if score is not none else '—' }}</div>
+          <div class="donut-label">Health score</div>
+          <div class="donut-sublabel">
+            {% if summary.status == 'critical' %}Critic
+            {% elif summary.status == 'warn' %}Avertisment
+            {% elif summary.status == 'healthy' %}Sănătos
+            {% elif summary.status == 'blocked' %}Blocat de WAF
+            {% else %}{{ summary.status or 'fără date' }}{% endif %}
+          </div>
+        </div>
+      </div>
+
+      <div class="overview-meta">
+        <div class="overview-pills">
+          {% if last_run_at %}
+            <span class="pill pill-muted">{{ icon('clock', 12) }} ultim scan: {{ last_run_at | dt_ro }}</span>
+          {% endif %}
+          {% if last_run_duration %}
+            <span class="pill pill-muted">durată {{ last_run_duration }}s</span>
+          {% endif %}
+          {% if summary.pages %}
+            <span class="pill pill-muted">{{ summary.pages }} pagini scanate</span>
+          {% endif %}
+        </div>
+
+        <div class="overview-stats">
+          <div class="os-card">
+            <div class="os-card-num {% if sev_counts.get('critical', 0) > 0 %}is-critical{% endif %}">{{ sev_counts.get('critical', 0) }}</div>
+            <div class="os-card-label">Critice</div>
+          </div>
+          <div class="os-card">
+            <div class="os-card-num {% if sev_counts.get('serious', 0) > 0 %}is-warn{% endif %}">{{ sev_counts.get('serious', 0) }}</div>
+            <div class="os-card-label">Serioase</div>
+          </div>
+          <div class="os-card">
+            <div class="os-card-num">{{ open_total }}</div>
+            <div class="os-card-label">Total deschise</div>
+          </div>
+          <div class="os-card">
+            <div class="os-card-num">{{ sev_counts.get('moderate', 0) }}</div>
+            <div class="os-card-label">Moderate</div>
+          </div>
+          <div class="os-card">
+            <div class="os-card-num">{{ sev_counts.get('minor', 0) }}</div>
+            <div class="os-card-label">Minore</div>
+          </div>
+          <div class="os-card">
+            <div class="os-card-num">{{ runs_count }}</div>
+            <div class="os-card-label">Scan-uri istoric</div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <div class="grid grid-2" style="margin-bottom: 18px;">
+
+    {# ---------------------------- TREND SPARKLINE ---------------------------- #}
+    <div class="card">
+      <div class="card-header">
+        <div>
+          <div class="card-title">Tendință health score</div>
+          <div class="card-sub">Ultimele {{ chart_points|length }} scan-uri</div>
+        </div>
+        <a href="/history" class="btn btn-ghost btn-sm">{{ icon('chevron-right', 14) }}</a>
+      </div>
+      <div class="card-body">
+        {% if chart_points %}
+          <svg class="sparkline" viewBox="0 0 100 60" preserveAspectRatio="none">
+            <polyline fill="none" stroke="var(--brand-2)" stroke-width="1.5"
+              points="{% for p in chart_points %}{{ p.x }},{{ p.y * 0.6 + 5 }} {% endfor %}" />
+            {% for p in chart_points %}
+              <circle cx="{{ p.x }}" cy="{{ p.y * 0.6 + 5 }}" r="1.4"
+                fill="{% if p.status == 'critical' %}var(--critical){% elif p.status == 'warn' %}var(--warn){% elif p.status == 'healthy' %}var(--ok){% else %}var(--muted){% endif %}">
+                <title>Run #{{ p.run_id }} · score {{ p.score }} · {{ p.status }} · {{ p.started }}</title>
+              </circle>
+            {% endfor %}
+          </svg>
+          <div class="spark-foot">
+            <span>cel mai vechi</span>
+            <span>cel mai recent: <strong>{{ chart_points[-1].score if chart_points[-1].score is not none else '—' }}</strong></span>
+          </div>
+        {% else %}
+          <div class="empty" style="padding: 30px 20px; border: none;">
+            <div class="empty-sub">Niciun scan în istoric. Rulează un scan pentru a vedea tendința.</div>
+          </div>
+        {% endif %}
+      </div>
+    </div>
+
+    {# ---------------------------- LIVE STATUS ---------------------------- #}
+    <div class="card">
+      <div class="card-header">
+        <div>
+          <div class="card-title">Stare live</div>
+          <div class="card-sub">Probe la ~30s · SLA din DB</div>
+        </div>
+        <a href="/live" class="btn btn-ghost btn-sm">{{ icon('chevron-right', 14) }}</a>
+      </div>
+      <div class="card-body">
+        <div class="row" style="align-items: center; gap: 14px;">
+          <span class="led led-{{ live.state }}"></span>
+          <div style="flex:1;">
+            <div style="font-weight: 700; font-size: 15px;">
+              {{ {'up':'Disponibil', 'slow':'Lent', 'down':'Indisponibil', 'unknown':'Verificare…'}[live.state] }}
+            </div>
+            <div class="muted" style="font-size: 12px;">
+              HTTP {{ live.last_status or '—' }} · {{ live.last_response_ms or '—' }} ms
+            </div>
+          </div>
+        </div>
+        <hr class="divider">
+        <div class="row" style="gap: 22px;">
+          <div class="stat">
+            <div class="stat-num">{{ live.sla_24h if live.sla_24h is not none else '—' }}{% if live.sla_24h is not none %}%{% endif %}</div>
+            <div class="stat-label">24h</div>
+          </div>
+          <div class="stat">
+            <div class="stat-num">{{ live.sla_7d if live.sla_7d is not none else '—' }}{% if live.sla_7d is not none %}%{% endif %}</div>
+            <div class="stat-label">7 zile</div>
+          </div>
+          <div class="stat">
+            <div class="stat-num">{{ live.sla_30d if live.sla_30d is not none else '—' }}{% if live.sla_30d is not none %}%{% endif %}</div>
+            <div class="stat-label">30 zile</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <div class="grid" style="grid-template-columns: 1.4fr 1fr; gap: 18px;">
+
+    {# ---------------------------- TOP INCIDENTS ---------------------------- #}
+    <div class="card">
+      <div class="card-header">
+        <div>
+          <div class="card-title">Incidente prioritare</div>
+          <div class="card-sub">Primele {{ top_incidents|length }} cele mai serioase, deschise</div>
+        </div>
+        <a href="/incidents" class="btn btn-ghost btn-sm">Toate ({{ open_total }}) {{ icon('chevron-right', 14) }}</a>
+      </div>
+      <div class="card-body flush">
+        {% if top_incidents %}
+          <table class="table table-tight">
+            <thead>
+              <tr>
+                <th style="width:60px">Sev</th>
+                <th style="width:140px">Categorie</th>
+                <th>Detalii</th>
+                <th style="width:90px" class="num">Vechime</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for it in top_incidents %}
+                <tr>
+                  <td><span class="sev-tag sev-tag-{{ it.severity }}">{{ it.severity[:4] }}</span></td>
+                  <td><span class="tag">{{ it.category }}</span></td>
+                  <td>
+                    <div>{{ it.summary }}</div>
+                    {% if it.page_url %}<div class="mono muted" style="font-size:11px;margin-top:3px">{{ it.page_url }}</div>{% endif %}
+                  </td>
+                  <td class="num mono">{% if it.age_days >= 1 %}{{ it.age_days }}z{% else %}<1z{% endif %}</td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        {% else %}
+          <div style="padding: 40px 20px; text-align: center; color: var(--muted);">
+            {% if has_data %}
+              <div style="color: var(--ok); margin-bottom: 8px;">{{ icon('shield-check', 36) }}</div>
+              <div style="font-weight: 600; color: var(--text);">Niciun incident deschis</div>
+              <div style="font-size: 12px; margin-top: 4px;">Site sănătos la ultimul scan.</div>
+            {% else %}
+              <div style="margin-bottom: 8px;">{{ icon('play', 36) }}</div>
+              <div style="font-weight: 600; color: var(--text);">Niciun scan rulat încă</div>
+              <div style="font-size: 12px; margin-top: 4px;">Apasă „Rulează scan complet" sus.</div>
+            {% endif %}
+          </div>
+        {% endif %}
+      </div>
+    </div>
+
+    {# ---------------------------- ACTIVITY FEED ---------------------------- #}
+    <div class="card">
+      <div class="card-header">
+        <div>
+          <div class="card-title">Activitate recentă</div>
+          <div class="card-sub">Ultimele evenimente</div>
+        </div>
+      </div>
+      <div class="card-body flush">
+        {% if activity %}
+          <div class="activity-feed">
+            {% for a in activity %}
+              <div class="activity-row">
+                <div class="activity-ico activity-ico-{{ a.tone }}">{{ icon(a.icon, 16) }}</div>
+                <div class="activity-body">
+                  <div class="activity-title">{{ a.title }}</div>
+                  <div class="activity-sub">{{ a.sub }}</div>
+                </div>
+                <div class="activity-when">{{ a.when_str }}</div>
+              </div>
+            {% endfor %}
+          </div>
+        {% else %}
+          <div style="padding: 40px 20px; text-align: center; color: var(--muted);">
+            Nicio activitate înregistrată încă.
+          </div>
+        {% endif %}
+      </div>
+    </div>
+
+  </div>
+
+{% endblock %}
+
+{% block scripts %}
+{% if scan_running %}
+<script>
+  async function tick() {
+    try {
+      const r = await fetch('/api/state', { cache: 'no-store' });
+      const s = await r.json();
+      if (s.status === 'running') {
+        const step = s.current_step || '...';
+        document.getElementById('rp-step').textContent = step;
+        document.getElementById('rp-sub').textContent =
+          '· pas ' + ((s.completed_steps || []).length + 1) + ' din 9';
+      } else if (s.status === 'done' || s.status === 'idle') {
+        window.location.reload();
+      }
+    } catch (e) {}
+    setTimeout(tick, 1500);
+  }
+  tick();
+</script>
+{% endif %}
+{% endblock %}
