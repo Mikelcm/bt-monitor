@@ -40,9 +40,34 @@ UPTIME_KIND_LABELS_RO = {
 }
 
 
+# CWE-1236 — cells starting with any of these are interpreted as a formula by
+# Excel / LibreOffice / Google Sheets when the file is opened. Data scraped from
+# the monitored site (page titles, summaries) is untrusted, so we neutralize it.
+_FORMULA_TRIGGERS = ("=", "+", "-", "@", "\t", "\r")
+
+
+def _formula_safe(value) -> str:
+    """Neutralize spreadsheet formula injection (CWE-1236).
+
+    If the cell text begins with a formula trigger, prefix a single quote so the
+    spreadsheet treats it as literal text. Applied to EVERY externally-sourced
+    cell in both CSV and XLSX exports.
+    """
+    if value is None:
+        return ""
+    s = str(value)
+    if s and s[0] in _FORMULA_TRIGGERS:
+        return "'" + s
+    return s
+
+
 def _h(s) -> str:
-    """ASCII-only helper for PDF/Excel cells (avoid font issues with diacritics)."""
-    return _ascii(s)
+    """ASCII-only + formula-safe helper for PDF/Excel cells.
+
+    Strips diacritics (Helvetica/reportlab can't render ăâîșț) AND neutralizes
+    formula injection. Every XLSX string cell routes through this.
+    """
+    return _formula_safe(_ascii(s))
 
 
 # ---------------------------------------------------------------------
@@ -102,18 +127,19 @@ def build_incidents_csv(target_url: str | None, status: str = "all") -> bytes:
         "is_open", "fingerprint",
     ])
     for inc in incidents:
+        # _formula_safe on every externally-sourced field (CWE-1236).
         w.writerow([
             inc.id,
-            inc.target_url,
-            inc.category,
-            inc.severity,
-            inc.page_url or "",
-            inc.summary,
+            _formula_safe(inc.target_url),
+            _formula_safe(inc.category),
+            _formula_safe(inc.severity),
+            _formula_safe(inc.page_url or ""),
+            _formula_safe(inc.summary),
             _fmt_dt(inc.first_seen_at),
             _fmt_dt(inc.last_seen_at),
             _fmt_dt(inc.resolved_at),
             "yes" if inc.is_open else "no",
-            inc.fingerprint,
+            _formula_safe(inc.fingerprint),
         ])
     return buf.getvalue().encode("utf-8-sig")  # BOM for Excel compatibility
 

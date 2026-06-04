@@ -135,8 +135,9 @@ async def probe_url(client: httpx.AsyncClient, url: str, sem: asyncio.Semaphore)
             probe.status = r.status_code
             probe.final_url = str(r.url)
             probe.redirected = len(r.history) > 0
-            # Some servers reject HEAD; retry with GET.
-            if probe.status in (403, 405, 501):
+            # Some servers reject HEAD; retry with GET. Includes 400 — some
+            # servers (e.g. starbt.ro) answer 400 to HEAD but 200 to GET (#20).
+            if probe.status in (400, 403, 405, 501):
                 r = await client.get(url, follow_redirects=True, timeout=PROBE_TIMEOUT_S)
                 probe.status = r.status_code
                 probe.final_url = str(r.url)

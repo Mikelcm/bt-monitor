@@ -10,13 +10,75 @@ import it at startup will see whatever was resolved at import time.
 For LIVE override (dashboard subprocess), the dashboard launches `runner.py`
 as a fresh subprocess so config.py re-evaluates with the new override file.
 """
+import ipaddress
 import json
 import logging
 import os
+import socket
 from datetime import datetime, timezone
 from pathlib import Path
+from urllib.parse import urlparse
 
 log = logging.getLogger("config")
+
+# ---------------------------------------------------------------------
+# SSRF protection (#2)
+# ---------------------------------------------------------------------
+# A target URL is attacker-influenced (set via the dashboard). Without a host
+# check, someone could point the scanner at cloud metadata (169.254.169.254),
+# localhost admin panels, or internal RFC-1918 hosts — Server-Side Request
+# Forgery. We resolve the host and reject private / loopback / link-local /
+# reserved IPs by default.
+#
+# Two env knobs:
+#   BT_MONITOR_ALLOWED_HOSTS         comma list; if set, ONLY these hosts (and
+#                                    their subdomains) are allowed. Production
+#                                    should set this to the BT domains.
+#   BT_MONITOR_ALLOW_PRIVATE_TARGETS truthy → permit loopback/private targets,
+#                                    needed for the local test fixture
+#                                    (http://127.0.0.1:8765). Off by default.
+
+def _allowed_hosts() -> list[str]:
+    raw = os.environ.get("BT_MONITOR_ALLOWED_HOSTS", "")
+    return [h.strip().lower().lstrip(".") for h in raw.split(",") if h.strip()]
+
+
+def _allow_private_targets() -> bool:
+    return os.environ.get("BT_MONITOR_ALLOW_PRIVATE_TARGETS", "").lower() in ("1", "true", "yes")
+
+
+def _host_block_reason(host: str) -> str | None:
+    """Return a reason string if `host` must be blocked, else None."""
+    if not host:
+        return "empty_host"
+    host_l = host.lower().strip("[]")  # strip IPv6 brackets
+
+    # Allowlist (production): host must match an allowed domain or subdomain.
+    allow = _allowed_hosts()
+    if allow:
+        ok = any(host_l == d or host_l.endswith("." + d) for d in allow)
+        if not ok:
+            return f"host_not_in_allowlist ({host_l})"
+
+    # Resolve and inspect every resulting IP. Block internal ranges.
+    if _allow_private_targets():
+        return None  # explicit dev opt-in (fixture)
+    try:
+        infos = socket.getaddrinfo(host_l, None)
+    except Exception:
+        # Can't resolve — let the probe fail naturally rather than block a
+        # transient DNS hiccup. The IP-class check below is the real guard.
+        return None
+    for info in infos:
+        ip_str = info[4][0]
+        try:
+            ip = ipaddress.ip_address(ip_str)
+        except ValueError:
+            continue
+        if (ip.is_private or ip.is_loopback or ip.is_link_local
+                or ip.is_reserved or ip.is_multicast or ip.is_unspecified):
+            return f"resolves_to_internal_ip ({ip_str})"
+    return None
 
 # Default if nothing else is set.
 DEFAULT_BASE_URL = "https://www.resetmedia.ro"
@@ -45,19 +107,23 @@ def get_base_url() -> str:
 
 
 def _validate_url(url: str) -> str | None:
-    """Return a clean URL or None if invalid. Adds https:// if missing.
-    Rejects empty strings and URLs without a hostname."""
+    """Return a clean URL or None if invalid/unsafe. Adds https:// if missing.
+    Rejects empty strings, URLs without a hostname, and SSRF-unsafe hosts (#2)."""
     url = (url or "").strip().rstrip("/")
     if not url:
         return None
     if not url.startswith(("http://", "https://")):
         url = "https://" + url
-    from urllib.parse import urlparse
     try:
         p = urlparse(url)
         if not p.netloc:
             return None
+        host = p.hostname or ""
     except Exception:
+        return None
+    reason = _host_block_reason(host)
+    if reason:
+        log.warning("target URL rejected (SSRF guard): %s — %s", url, reason)
         return None
     return url
 
@@ -134,7 +200,8 @@ def _normalize_url(url: str) -> str:
 
 
 def add_live_target(url: str) -> list[str]:
-    url = _normalize_url(url)
+    # SSRF-gate live targets too (#2) — same guard as the primary target.
+    url = _validate_url(url)
     if not url:
         return get_live_targets()
     existing = get_live_targets()

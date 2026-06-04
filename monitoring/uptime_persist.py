@@ -21,6 +21,17 @@ from monitoring.incident_alerts import IncidentAlert, hub as alert_hub
 
 log = logging.getLogger("monitoring.uptime_persist")
 
+# #9 — observability for persistence failures. The dashboard /settings page and
+# tests can read this to surface "probes lost to DB errors" instead of failing
+# silently. init_db() is NOT called per-probe anymore (#10): the dashboard and
+# runner call it once at startup; init_db() is itself an idempotent no-op after
+# the first call as a safety net.
+_persist_failures = 0
+
+
+def persist_failure_count() -> int:
+    return _persist_failures
+
 
 def _utcnow() -> datetime:
     return datetime.now(timezone.utc)
@@ -59,7 +70,7 @@ def record_probe(
     error: str | None,
 ) -> None:
     """Persist every probe (down-sampling can come later if volume blows up)."""
-    init_db()
+    global _persist_failures
     try:
         with get_session() as session:
             session.add(UptimeCheck(
@@ -72,8 +83,14 @@ def record_probe(
                 error=error,
             ))
             session.commit()
-    except Exception as exc:
-        log.warning("uptime_check insert failed: %r", exc)
+    except Exception:
+        # #9 — never swallow silently. Log with full context + bump the metric
+        # so a sustained DB problem (e.g. lock storm) is visible, not invisible.
+        _persist_failures += 1
+        log.exception(
+            "uptime_check insert FAILED (total failures=%d) target=%s state=%s status=%s",
+            _persist_failures, target, state, status_code,
+        )
 
 
 def handle_state_change(
@@ -100,7 +117,6 @@ def handle_state_change(
     The main watcher (root URL) uses defaults → site_down / site_slow.
     The pages watcher passes kind_for_down='page_down', severity='serious'.
     """
-    init_db()
     target = target.rstrip("/")
     now = _utcnow()
     events: list[IncidentAlert] = []
@@ -199,8 +215,10 @@ def handle_state_change(
                         ))
 
             session.commit()
-    except Exception as exc:
-        log.warning("uptime incident upsert failed: %r", exc)
+    except Exception:
+        global _persist_failures
+        _persist_failures += 1
+        log.exception("uptime incident upsert FAILED target=%s %s->%s", target, from_state, to_state)
         return
 
     if events:
@@ -212,7 +230,6 @@ def handle_state_change(
 
 def uptime_percent(target: str, hours: int = 24) -> float | None:
     """% of probes with state == 'up' over the last N hours. None if no data."""
-    init_db()
     target = target.rstrip("/")
     since = _utcnow() - timedelta(hours=hours)
     try:
@@ -234,12 +251,12 @@ def uptime_percent(target: str, hours: int = 24) -> float | None:
             ) or 0
             return round(ok * 100.0 / total, 2)
     except Exception:
+        log.exception("uptime_percent query failed target=%s hours=%d", target, hours)
         return None
 
 
 def prune_old(days: int = 30) -> int:
     """Delete uptime_checks older than N days. Returns count deleted."""
-    init_db()
     cutoff = _utcnow() - timedelta(days=days)
     try:
         with get_session() as session:
@@ -249,4 +266,5 @@ def prune_old(days: int = 30) -> int:
             session.commit()
             return result.rowcount or 0
     except Exception:
+        log.exception("prune_old failed days=%d", days)
         return 0

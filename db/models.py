@@ -29,8 +29,10 @@ from sqlalchemy import (
     String,
     UniqueConstraint,
     create_engine,
+    event,
     Index,
 )
+from sqlalchemy.engine import Engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship, sessionmaker, Session
 
 
@@ -145,13 +147,43 @@ class IncidentObservation(Base):
 
 _engine = None
 _SessionFactory: Optional[sessionmaker[Session]] = None
+_schema_ready = False
+
+
+@event.listens_for(Engine, "connect")
+def _set_sqlite_pragmas(dbapi_conn, _rec):
+    """On every SQLite connection enable WAL + a busy timeout (#7).
+
+    WAL lets readers and a writer work concurrently instead of serializing,
+    which is what caused 'database is locked' under the watcher (30s) +
+    pages_watcher (120s) + deep-scan write load. No-op for non-SQLite
+    backends (Postgres handles concurrency natively via MVCC).
+    """
+    # Only SQLite DBAPI connections expose this module path; guard so the
+    # listener is harmless when the engine is Postgres.
+    if type(dbapi_conn).__module__.split(".")[0] not in ("sqlite3", "pysqlite2"):
+        return
+    try:
+        cur = dbapi_conn.cursor()
+        cur.execute("PRAGMA journal_mode=WAL")
+        cur.execute("PRAGMA busy_timeout=5000")      # wait up to 5s on a locked db
+        cur.execute("PRAGMA synchronous=NORMAL")     # safe with WAL, much faster
+        cur.close()
+    except Exception:
+        # Never let a pragma failure break connection setup.
+        pass
 
 
 def get_engine():
     global _engine, _SessionFactory
     if _engine is None:
         url = os.environ.get("BT_MONITOR_DB_URL") or _default_db_url()
-        _engine = create_engine(url, future=True)
+        is_sqlite = url.startswith("sqlite")
+        kwargs = {"future": True, "pool_pre_ping": True}
+        if not is_sqlite:
+            # Sensible pool for Postgres in production (#7 migration-readiness).
+            kwargs.update(pool_size=5, max_overflow=10, pool_recycle=1800)
+        _engine = create_engine(url, **kwargs)
         _SessionFactory = sessionmaker(bind=_engine, expire_on_commit=False, future=True)
     return _engine
 
@@ -164,6 +196,21 @@ def get_session() -> Session:
 
 
 def init_db() -> None:
-    """Create all tables if they don't exist. Safe to call repeatedly."""
+    """Create all tables if they don't exist.
+
+    Idempotent AND cheap: after the first successful call it's a no-op, so it's
+    safe to call from hot paths without re-running create_all every probe (#10).
+    Call reset_schema_ready() in tests that recreate the engine.
+    """
+    global _schema_ready
+    if _schema_ready:
+        return
     engine = get_engine()
     Base.metadata.create_all(engine)
+    _schema_ready = True
+
+
+def reset_schema_ready() -> None:
+    """Force the next init_db() to re-run create_all (used by tests)."""
+    global _schema_ready
+    _schema_ready = False
