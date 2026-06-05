@@ -255,6 +255,39 @@ def uptime_percent(target: str, hours: int = 24) -> float | None:
         return None
 
 
+def recent_pings(target: str, limit: int = 120) -> list[dict]:
+    """Last `limit` probes for a target, oldest→newest, in the shape the live
+    sparkline expects ({ts unix, status, response_ms, state, error}).
+
+    DB-backed replacement for the old monitoring.store.recent_pings (#6 — single
+    source of truth)."""
+    target = target.rstrip("/")
+    try:
+        with get_session() as session:
+            rows = session.scalars(
+                select(UptimeCheck)
+                .where(UptimeCheck.target_url == target)
+                .order_by(UptimeCheck.checked_at.desc())
+                .limit(limit)
+            ).all()
+    except Exception:
+        log.exception("recent_pings query failed target=%s", target)
+        return []
+    out = []
+    for r in reversed(rows):  # oldest → newest
+        ts = r.checked_at
+        if ts is not None and ts.tzinfo is None:
+            ts = ts.replace(tzinfo=timezone.utc)
+        out.append({
+            "ts": int(ts.timestamp()) if ts else 0,
+            "status": r.status_code,
+            "response_ms": r.response_ms,
+            "state": r.state,
+            "error": r.error,
+        })
+    return out
+
+
 def prune_old(days: int = 30) -> int:
     """Delete uptime_checks older than N days. Returns count deleted."""
     cutoff = _utcnow() - timedelta(days=days)

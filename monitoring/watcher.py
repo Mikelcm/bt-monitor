@@ -35,7 +35,6 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 from config import USER_AGENT, get_base_url
 from monitoring.alerts import AlertEvent, AlertHub
-from monitoring.store import UptimeStore
 from monitoring.uptime_persist import handle_state_change, record_probe
 
 log = logging.getLogger("monitoring.watcher")
@@ -113,10 +112,8 @@ class Watcher:
     def __init__(
         self,
         targets: Iterable[str] | None = None,
-        store: UptimeStore | None = None,
         alerts: AlertHub | None = None,
     ):
-        self.store = store or UptimeStore()
         self.alerts = alerts or AlertHub()
         self.targets: dict[str, TargetState] = {}
         for u in targets or []:
@@ -204,9 +201,7 @@ class Watcher:
         t.last_error = error
         t.streak.append(probe_state)
 
-        # Persist every ping (downsampled later via 24h cutoff in store).
-        self.store.record_ping(url, probe_state, status, response_ms, error)
-        # Also persist to DB for long-term SLA + incident generation.
+        # Persist every probe to the DB — single source of truth (#6).
         record_probe(url, probe_state, status, response_ms, error)
 
         # Hysteresis — change the OFFICIAL state only after N matching probes.
@@ -220,7 +215,6 @@ class Watcher:
             new = probe_state
             t.current_state = new
             msg = _state_explanation(new, status, response_ms, error)
-            self.store.record_state_change(url, old, new, msg, status, response_ms)
             await self.alerts.fire(AlertEvent(
                 ts=t.last_seen_ts, url=url,
                 from_state=old, to_state=new,

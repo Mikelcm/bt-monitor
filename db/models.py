@@ -130,6 +130,38 @@ class UptimeCheck(Base):
     error: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
 
 
+class Alert(Base):
+    """Persistent history of every alert event (#8).
+
+    The in-memory ring + JSONL were volatile / truncated (#19). This table is
+    the queryable, audit-grade record: what was sent, when, on which channel,
+    and whether delivery succeeded. Persisted BEFORE dispatch, then updated
+    with the delivery result — so even a crash mid-dispatch leaves a trace.
+    """
+    __tablename__ = "alerts"
+    __table_args__ = (
+        Index("ix_alerts_fired", "fired_at"),
+        Index("ix_alerts_incident", "incident_id"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    incident_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("incidents.id"), nullable=True, index=True
+    )
+    kind: Mapped[str] = mapped_column(String(32))            # new | reopened | resolved
+    category: Mapped[str] = mapped_column(String(64))
+    severity: Mapped[str] = mapped_column(String(32))
+    channel: Mapped[str] = mapped_column(String(32), default="none")  # teams | none | log
+    target_url: Mapped[str] = mapped_column(String(512))
+    page_url: Mapped[Optional[str]] = mapped_column(String(1024), nullable=True)
+    summary: Mapped[str] = mapped_column(String(1024))
+    run_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    fired_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, index=True)
+    dispatched: Mapped[bool] = mapped_column(Boolean, default=False)
+    dispatch_status: Mapped[str] = mapped_column(String(32), default="pending")  # sent|skipped|failed|no_channel
+    payload: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+
+
 class IncidentObservation(Base):
     __tablename__ = "incident_observations"
     __table_args__ = (

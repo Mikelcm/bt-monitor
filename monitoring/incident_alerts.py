@@ -125,39 +125,106 @@ class IncidentAlertHub:
     # firing
     # ------------------------------------------------------------------
     def fire_batch(self, alerts: Iterable[IncidentAlert]) -> dict:
-        """Record every alert in the ring buffer; dispatch the ones that pass
-        the severity filter. Returns a small stats dict."""
+        """Persist every alert to the DB (#8), dispatch the ones that pass the
+        severity filter, then update the delivery result. Returns a stats dict.
+
+        Persisting BEFORE dispatch means a crash mid-send still leaves an audit
+        row (status stays 'pending'/'failed'), never a silent loss."""
         stats = {"recorded": 0, "dispatched": 0, "skipped": 0, "channel_errors": 0}
         teams_url = os.environ.get("BT_MONITOR_TEAMS_WEBHOOK")
 
-        # Open a single httpx client for the batch.
         client = httpx.Client(timeout=10) if teams_url else None
         self._log_path.parent.mkdir(parents=True, exist_ok=True)
         log_lines: list[str] = []
         try:
             for a in alerts:
                 stats["recorded"] += 1
+                dispatch = self.should_dispatch(a)
+                channel = "teams" if (dispatch and teams_url) else ("log" if dispatch else "none")
+                # 1) persist the alert row first (status pending).
+                alert_row_id = self._persist_alert(a, channel=channel, status="pending")
+
                 dispatched_to: list[str] = []
-                if self.should_dispatch(a):
+                status = "skipped"
+                if dispatch:
                     log.warning("INCIDENT ALERT %s :: %s", a.title, a.summary)
                     if teams_url:
                         if self._send_teams(client, teams_url, a):
                             dispatched_to.append("teams")
+                            status = "sent"
                         else:
                             stats["channel_errors"] += 1
+                            status = "failed"
+                    else:
+                        status = "sent"  # severity passed but no channel configured → logged only
+                        channel = "log"
                     stats["dispatched"] += 1
                 else:
                     stats["skipped"] += 1
-                rec = a.to_dict() | {"dispatched_to": dispatched_to}
+                    status = "skipped"
+                # 2) update the delivery outcome.
+                self._update_alert_status(alert_row_id, dispatched=bool(dispatched_to), status=status)
+
+                rec = a.to_dict() | {"dispatched_to": dispatched_to, "status": status}
                 log_lines.append(json.dumps(rec, ensure_ascii=False))
         finally:
             if client is not None:
                 client.close()
             if log_lines:
-                with self._log_path.open("a", encoding="utf-8") as f:
-                    f.write("\n".join(log_lines) + "\n")
-                self._trim_log()
+                # JSONL kept as a secondary, human-greppable trail; DB is authoritative.
+                try:
+                    with self._log_path.open("a", encoding="utf-8") as f:
+                        f.write("\n".join(log_lines) + "\n")
+                    self._trim_log()
+                except Exception:
+                    log.exception("alert JSONL append failed (DB row still persisted)")
         return stats
+
+    # ------------------------------------------------------------------
+    # DB persistence (#8)
+    # ------------------------------------------------------------------
+    @staticmethod
+    def _persist_alert(a: IncidentAlert, channel: str, status: str) -> int | None:
+        """Insert an alerts row, return its id (or None on failure)."""
+        try:
+            from db.models import Alert, get_session
+            with get_session() as session:
+                row = Alert(
+                    incident_id=a.incident_id or None,
+                    kind=a.kind,
+                    category=a.category,
+                    severity=a.severity,
+                    channel=channel,
+                    target_url=a.target_url,
+                    page_url=a.page_url,
+                    summary=(a.summary or "")[:1024],
+                    run_id=a.run_id or None,
+                    fired_at=a.fired_at,
+                    dispatched=False,
+                    dispatch_status=status,
+                    payload=a.to_dict(),
+                )
+                session.add(row)
+                session.commit()
+                return row.id
+        except Exception:
+            log.exception("alert DB persist failed (fingerprint=%s)", a.fingerprint)
+            return None
+
+    @staticmethod
+    def _update_alert_status(alert_id: int | None, dispatched: bool, status: str) -> None:
+        if alert_id is None:
+            return
+        try:
+            from db.models import Alert, get_session
+            with get_session() as session:
+                row = session.get(Alert, alert_id)
+                if row is not None:
+                    row.dispatched = dispatched
+                    row.dispatch_status = status
+                    session.commit()
+        except Exception:
+            log.exception("alert DB status update failed (id=%s)", alert_id)
 
     def _trim_log(self) -> None:
         """Keep only the last `ring_size * 5` lines on disk."""
@@ -170,11 +237,36 @@ class IncidentAlertHub:
             pass
 
     def recent(self, limit: int = 50) -> list[dict]:
-        """Read the last `limit` records from the JSONL audit log. Newest first."""
+        """Last `limit` alerts, newest first. Reads the DB (authoritative, #8);
+        falls back to the JSONL trail if the DB is unavailable."""
+        try:
+            from db.models import Alert, get_session
+            from sqlalchemy import select, desc
+            with get_session() as session:
+                rows = session.scalars(
+                    select(Alert).order_by(desc(Alert.fired_at)).limit(limit)
+                ).all()
+            if rows:
+                return [{
+                    "kind":          r.kind,
+                    "incident_id":   r.incident_id,
+                    "category":      r.category,
+                    "severity":      r.severity,
+                    "channel":       r.channel,
+                    "summary":       r.summary,
+                    "target_url":    r.target_url,
+                    "page_url":      r.page_url,
+                    "run_id":        r.run_id,
+                    "fired_at":      r.fired_at.isoformat() if r.fired_at else None,
+                    "dispatched":    r.dispatched,
+                    "status":        r.dispatch_status,
+                } for r in rows]
+        except Exception:
+            log.exception("alert recent() DB read failed; falling back to JSONL")
+        # Fallback: JSONL trail.
         if not self._log_path.exists():
             return []
         try:
-            # Cheap tail: we don't expect millions of alerts. Read & slice.
             lines = self._log_path.read_text(encoding="utf-8").splitlines()
         except Exception:
             return []

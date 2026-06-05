@@ -60,12 +60,13 @@ from config import (
     get_live_targets, add_live_target, remove_live_target, all_watched_targets,
 )
 from runner import read_state, build_summary
-from monitoring.store import UptimeStore
 from monitoring.alerts import AlertHub
 from monitoring.watcher import Watcher
 from monitoring.pages_watcher import PagesWatcher, PAGES_INTERVAL_S
 from monitoring.incident_alerts import hub as incident_alert_hub
-from monitoring.uptime_persist import prune_old as prune_uptime_checks, uptime_percent
+from monitoring.uptime_persist import (
+    prune_old as prune_uptime_checks, uptime_percent, recent_pings,
+)
 from db.models import Incident, IncidentObservation, Run, UptimeCheck, get_session, init_db
 from dashboard.exports import build_incidents_csv, build_incidents_xlsx, build_audit_pdf
 from utils.time_ro import format_ro, format_ro_short, humanize_duration, to_ro
@@ -76,9 +77,8 @@ DASH_DIR = ROOT / "dashboard"
 # ---------------------------------------------------------------------
 # global singletons (one per process)
 # ---------------------------------------------------------------------
-_store = UptimeStore()
 _alerts = AlertHub()
-_watcher = Watcher(store=_store, alerts=_alerts)
+_watcher = Watcher(alerts=_alerts)
 _pages_watcher = PagesWatcher()
 _watcher_task: asyncio.Task | None = None
 _pages_task: asyncio.Task | None = None
@@ -188,6 +188,51 @@ templates.env.filters["dt_ro"] = format_ro
 templates.env.filters["dt_ro_short"] = format_ro_short
 templates.env.filters["humanize_duration"] = humanize_duration
 app.mount("/static", StaticFiles(directory=str(DASH_DIR / "static")), name="static")
+
+# ---------------------------------------------------------------------
+# #1 Basic Auth — protect every route (incl. the state-mutating POSTs).
+# Enforced ONLY when credentials are configured via env. Production MUST set
+# them; local dev may omit them (a loud warning is logged at startup).
+# ---------------------------------------------------------------------
+import base64 as _b64
+import secrets as _secrets
+from fastapi.responses import Response as _Response
+
+_AUTH_USER = os.environ.get("BT_MONITOR_AUTH_USER")
+_AUTH_PASS = os.environ.get("BT_MONITOR_AUTH_PASS")
+_AUTH_ENABLED = bool(_AUTH_USER and _AUTH_PASS)
+_AUTH_EXEMPT = ("/static", "/healthz")
+
+if not _AUTH_ENABLED:
+    logging.getLogger("dashboard").warning(
+        "AUTH DISABLED — set BT_MONITOR_AUTH_USER and BT_MONITOR_AUTH_PASS to "
+        "require login. Do NOT expose the dashboard publicly without them."
+    )
+
+
+@app.middleware("http")
+async def _basic_auth(request, call_next):
+    if not _AUTH_ENABLED or request.url.path.startswith(_AUTH_EXEMPT):
+        return await call_next(request)
+    hdr = request.headers.get("Authorization", "")
+    if hdr.startswith("Basic "):
+        try:
+            user, _, pw = _b64.b64decode(hdr[6:]).decode("utf-8", "ignore").partition(":")
+            # constant-time compare to avoid timing oracles
+            if _secrets.compare_digest(user, _AUTH_USER) and _secrets.compare_digest(pw, _AUTH_PASS):
+                return await call_next(request)
+        except Exception:
+            pass
+    return _Response(
+        "Unauthorized", status_code=401,
+        headers={"WWW-Authenticate": 'Basic realm="BT Monitor"'},
+    )
+
+
+@app.get("/healthz")
+async def healthz():
+    """Unauthenticated liveness probe (for Docker/reverse-proxy healthchecks)."""
+    return {"status": "ok"}
 
 
 # ---------------------------------------------------------------------
@@ -401,12 +446,12 @@ def _global_status(base_url: str) -> dict:
 def _live_snapshot(base_url: str) -> dict:
     target = base_url.rstrip("/")
     target_state = _watcher.targets.get(target)
-    pings = _store.recent_pings(target, limit=120)
+    pings = recent_pings(target, limit=120)
     # DB-backed SLA windows (None if no data yet)
     sla_24h = uptime_percent(target, hours=24)
     sla_7d = uptime_percent(target, hours=24 * 7)
     sla_30d = uptime_percent(target, hours=24 * 30)
-    uptime_24h = sla_24h if sla_24h is not None else _store.uptime_percent(target)
+    uptime_24h = sla_24h
     alerts = [
         {
             "ts": e.ts, "url": e.url, "from": e.from_state, "to": e.to_state,
@@ -1058,4 +1103,10 @@ async def api_uptime():
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="127.0.0.1", port=8000, log_level="info")
+    # #15 — host/port/log level configurable via env (default to localhost).
+    uvicorn.run(
+        app,
+        host=os.environ.get("BT_MONITOR_HOST", "127.0.0.1"),
+        port=int(os.environ.get("BT_MONITOR_PORT", "8000")),
+        log_level=os.environ.get("BT_MONITOR_LOG_LEVEL", "info"),
+    )

@@ -1,4 +1,7 @@
-from .models import Base, Run, Incident, IncidentObservation, UptimeCheck, get_engine, get_session, init_db
+from .models import (
+    Base, Run, Incident, IncidentObservation, UptimeCheck, Alert,
+    get_engine, get_session, init_db, reset_schema_ready,
+)
 
 __all__ = [
     "Base",
@@ -6,7 +9,9 @@ __all__ = [
     "Incident",
     "IncidentObservation",
     "UptimeCheck",
+    "Alert",
     "get_engine",
     "get_session",
     "init_db",
+    "reset_schema_ready",
 ]
