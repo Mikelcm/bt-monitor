@@ -1,0 +1,53 @@
+# BT Monitor — production compose (#13): app + dedicated Postgres.
+# Bring up:   docker compose up -d --build
+# The app enforces Basic Auth (set the *_AUTH_* vars below). For internet
+# exposure, also front it with the reverse proxy in deploy/ (TLS + extra auth).
+#
+# Secrets: copy .env.example to .env and fill it; compose reads .env automatically.
+# NEVER commit .env.
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-btmonitor}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: ${POSTGRES_DB:-bt_monitor}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-btmonitor} -d ${POSTGRES_DB:-bt_monitor}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  app:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      # DB — exclusive Postgres in production (audit requirement).
+      BT_MONITOR_DB_URL: postgresql+psycopg://${POSTGRES_USER:-btmonitor}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-bt_monitor}
+      # Auth (required — without these the dashboard runs unauthenticated).
+      BT_MONITOR_AUTH_USER: ${BT_MONITOR_AUTH_USER:?set in .env}
+      BT_MONITOR_AUTH_PASS: ${BT_MONITOR_AUTH_PASS:?set in .env}
+      # SSRF allowlist — only these hosts may be scanned in production.
+      BT_MONITOR_ALLOWED_HOSTS: ${BT_MONITOR_ALLOWED_HOSTS:-bancatransilvania.ro}
+      # Target + alerting.
+      BT_MONITOR_BASE_URL: ${BT_MONITOR_BASE_URL:-https://www.bancatransilvania.ro}
+      BT_MONITOR_TEAMS_WEBHOOK: ${BT_MONITOR_TEAMS_WEBHOOK:-}
+      BT_MONITOR_TEAMS_FORMAT: ${BT_MONITOR_TEAMS_FORMAT:-adaptive}
+      BT_MONITOR_DASHBOARD_URL: ${BT_MONITOR_DASHBOARD_URL:-}
+      BT_MONITOR_LOG_LEVEL: ${BT_MONITOR_LOG_LEVEL:-INFO}
+      BT_MONITOR_LOG_FORMAT: ${BT_MONITOR_LOG_FORMAT:-json}
+    ports:
+      - "127.0.0.1:8000:8000"   # bind to loopback; the proxy publishes it
+    volumes:
+      - appdata:/app/data       # keeps the per-scan JSON reports
+
+volumes:
+  pgdata:
+  appdata:

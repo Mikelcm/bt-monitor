@@ -182,6 +182,54 @@ All exports use Romania timezone (`DD.MM.YYYY HH:MM:SS`) and ASCII-only text
 
 ---
 
+## Security hardening (audit 2026-06)
+
+The dashboard ships with the security controls a bank's IT review expects:
+
+| Control | How |
+|---|---|
+| **Authentication** | HTTP Basic on every route except `/static` + `/healthz`. Enabled when `BT_MONITOR_AUTH_USER` + `BT_MONITOR_AUTH_PASS` are set (constant-time compare). Front with a TLS reverse proxy in production. |
+| **SSRF protection** | The scan target is resolved and rejected if it points at private / loopback / link-local / reserved IPs (blocks cloud metadata, internal hosts). `BT_MONITOR_ALLOWED_HOSTS` pins production to BT domains; `BT_MONITOR_ALLOW_PRIVATE_TARGETS=true` re-enables the local fixture in dev. |
+| **CSRF** | Same-origin check (Origin/Referer) on all state-changing requests. |
+| **Spreadsheet injection** | CSV/XLSX exports neutralize cells starting with `= + - @` (CWE-1236). |
+| **Rate limiting** | One deep scan at a time + cooldown (`BT_MONITOR_SCAN_MIN_INTERVAL_S`). |
+| **Audit trail** | Every alert persisted to the `alerts` DB table (kind, severity, channel, delivery status). |
+| **Secrets** | Webhooks/credentials come only from env; `mask_secret()` keeps them out of logs. |
+
+### Security-related env vars
+
+| Var | Default | Effect |
+|---|---|---|
+| `BT_MONITOR_AUTH_USER` / `_PASS` | (unset) | Enable Basic Auth |
+| `BT_MONITOR_ALLOWED_HOSTS` | (unset) | Comma list; only these hosts (+subdomains) may be scanned |
+| `BT_MONITOR_ALLOW_PRIVATE_TARGETS` | `false` | Permit loopback/private targets (dev fixture) |
+| `BT_MONITOR_SCAN_MIN_INTERVAL_S` | `60` | Min seconds between deep-scan starts |
+| `BT_MONITOR_TEAMS_FORMAT` | `messagecard` | `adaptive` for Power Automate Workflows |
+| `BT_MONITOR_LOG_LEVEL` / `_FORMAT` | `INFO` / `text` | Logging verbosity / `json` |
+| `BT_MONITOR_HOST` / `_PORT` | `127.0.0.1` / `8000` | Bind address |
+| `BT_MONITOR_DB_URL` | SQLite (WAL) | `postgresql+psycopg://…` for production |
+
+## Tests & CI
+
+```bash
+pip install -r requirements.txt -r requirements-dev.txt
+pytest                       # 35 tests: SSRF, CSV, auth, CSRF, DB/WAL, alerts, watcher…
+ruff check --select E9,F63,F7,F82 .
+```
+
+GitHub Actions (`.github/workflows/ci.yml`) runs lint + tests on every push/PR to `main`.
+
+## Docker (production)
+
+```bash
+cp .env.example .env          # fill POSTGRES_PASSWORD, BT_MONITOR_AUTH_*, etc.
+docker compose up -d --build  # app + dedicated Postgres, exclusive Postgres in prod
+```
+
+The image installs Chromium for the deep scan, runs as a non-root user, and
+exposes `/healthz` for healthchecks. SQLite (with WAL) remains the zero-config
+default for local dev; production uses Postgres via `BT_MONITOR_DB_URL`.
+
 ## Deployment to Banca Transilvania production
 
 `bancatransilvania.ro` is protected by **Akamai Bot Manager**. Akamai inspects
