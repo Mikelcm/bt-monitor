@@ -1,0 +1,51 @@
+{% from '_icons.html' import icon %}
+<!doctype html>
+<html lang="ro">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Autentificare — BT Monitor</title>
+  <link rel="stylesheet" href="/static/app.css">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%230f172a'/%3E%3Ctext x='32' y='44' font-family='system-ui' font-size='28' font-weight='800' text-anchor='middle' fill='white'%3EBT%3C/text%3E%3C/svg%3E">
+  <style>
+    .login-wrap { min-height: 100vh; display: grid; place-items: center; padding: 24px;
+      background: radial-gradient(1200px 600px at 50% -10%, #1e293b 0%, var(--slate-900) 55%); }
+    .login-card { width: 100%; max-width: 380px; background: var(--surface); border: 1px solid var(--border);
+      border-radius: var(--r-xl); box-shadow: var(--sh-lg); overflow: hidden; }
+    .login-head { padding: 30px 30px 6px; text-align: center; }
+    .login-logo { width: 52px; height: 52px; border-radius: 13px; background: var(--slate-900); color: #fff;
+      display: grid; place-items: center; font-weight: 800; font-size: 19px; letter-spacing: -.04em; margin: 0 auto 14px; }
+    .login-title { font-size: 19px; font-weight: 700; }
+    .login-sub { font-size: 13px; color: var(--muted); margin-top: 4px; }
+    .login-body { padding: 22px 30px 30px; display: flex; flex-direction: column; gap: 14px; }
+    .login-err { font-size: 12.5px; color: var(--red-text); background: var(--red-soft);
+      border: 1px solid var(--red-border); border-radius: var(--r-sm); padding: 9px 12px; }
+    .login-foot { text-align: center; font-size: 11.5px; color: var(--muted-2); padding: 0 30px 22px; }
+  </style>
+</head>
+<body>
+  <div class="login-wrap">
+    <div class="login-card">
+      <div class="login-head">
+        <div class="login-logo">BT</div>
+        <div class="login-title">BT Monitor</div>
+        <div class="login-sub">Autentificare în panoul de monitorizare</div>
+      </div>
+      <form class="login-body" method="post" action="/login">
+        <input type="hidden" name="next" value="{{ next }}">
+        {% if error %}<div class="login-err">{{ error }}</div>{% endif %}
+        <div class="field">
+          <label class="field-label" for="username">Utilizator</label>
+          <input class="input" type="text" name="username" id="username" autocomplete="username" autofocus required>
+        </div>
+        <div class="field">
+          <label class="field-label" for="password">Parolă</label>
+          <input class="input" type="password" name="password" id="password" autocomplete="current-password" required>
+        </div>
+        <button class="btn btn-primary" type="submit" style="width:100%;margin-top:4px">Autentificare</button>
+      </form>
+      <div class="login-foot">Acces securizat · sesiune criptată</div>
+    </div>
+  </div>
+</body>
+</html>

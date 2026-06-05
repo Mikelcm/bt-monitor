@@ -15,6 +15,42 @@
 
   <div class="stack">
 
+    {# security posture #}
+    <div class="card">
+      <div class="card-head">
+        <div><div class="card-title">Securitate &amp; conformitate</div><div class="card-sub">controale active — pregătit pentru review IT bancar</div></div>
+        {% if security.auth_enabled %}<span class="badge badge-green"><span class="dot"></span>protejat</span>{% else %}<span class="badge badge-amber"><span class="dot"></span>auth dezactivat (dev)</span>{% endif %}
+      </div>
+      <div class="card-body">
+        <div class="sec-grid">
+          <div class="sec-item">
+            <span class="sec-ico {{ 'ok' if security.auth_enabled else 'warn' }}">{{ icon('check' if security.auth_enabled else 'x', 14) }}</span>
+            <div><div class="sec-name">Autentificare</div><div class="sec-desc">{% if security.auth_enabled %}login cu sesiune{% if security.current_user %} · conectat ca <strong>{{ security.current_user }}</strong>{% endif %} + Basic Auth pentru API{% else %}dezactivată — setează <code>BT_MONITOR_AUTH_USER/PASS</code>{% endif %}</div></div>
+          </div>
+          <div class="sec-item">
+            <span class="sec-ico ok">{{ icon('shield', 14) }}</span>
+            <div><div class="sec-name">Protecție SSRF</div><div class="sec-desc">{% if security.allowed_hosts %}allowlist: <span class="mono">{{ security.allowed_hosts|join(', ') }}</span>{% else %}blocare IP intern/loopback/metadata{% endif %}{% if security.allow_private %} · ținte private permise (dev){% endif %}</div></div>
+          </div>
+          <div class="sec-item">
+            <span class="sec-ico ok">{{ icon('check', 14) }}</span>
+            <div><div class="sec-name">Protecție CSRF</div><div class="sec-desc">verificare same-origin pe toate cererile mutating</div></div>
+          </div>
+          <div class="sec-item">
+            <span class="sec-ico ok">{{ icon('check', 14) }}</span>
+            <div><div class="sec-name">Rate-limit scan</div><div class="sec-desc">single-flight + cooldown pe <code>/run</code> (anti-DoS)</div></div>
+          </div>
+          <div class="sec-item">
+            <span class="sec-ico ok">{{ icon('check', 14) }}</span>
+            <div><div class="sec-name">Bază de date</div><div class="sec-desc">{{ security.db_backend }} · migrații {{ security.db_migrations }}</div></div>
+          </div>
+          <div class="sec-item">
+            <span class="sec-ico ok">{{ icon('check', 14) }}</span>
+            <div><div class="sec-name">Logging</div><div class="sec-desc">structurat ({{ security.log_format }}) · secrete mascate</div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
     {# target #}
     <div class="card">
       <div class="card-head">
@@ -90,6 +126,39 @@
           <dt>Observații</dt><dd class="cell-strong">{{ db_stats.observations }}</dd>
           <dt>Categorii distincte</dt><dd class="mono">{{ db_stats.categories|join(', ') if db_stats.categories else '—' }}</dd>
         </dl>
+      </div>
+    </div>
+
+    {# alerts audit log #}
+    <div class="card">
+      <div class="card-head">
+        <div><div class="card-title">Jurnal alerte</div><div class="card-sub">{{ db_stats.alerts }} alerte în DB · istoric audit-grade (persistat înainte de trimitere)</div></div>
+      </div>
+      <div class="card-body flush">
+        {% if recent_alerts %}
+        <table class="table">
+          <thead><tr><th class="col-tight">Când</th><th class="col-tight">Tip</th><th class="col-tight">Sev</th><th>Detalii</th><th class="col-tight">Canal</th><th class="col-tight">Livrare</th></tr></thead>
+          <tbody>
+            {% for a in recent_alerts %}
+            <tr>
+              <td class="mono muted nowrap">{{ a.fired_at | dt_ro_short }}</td>
+              <td><span class="tag">{{ a.kind }}</span></td>
+              <td><span class="sev sev-{{ a.severity }}">{{ a.severity[:4] }}</span></td>
+              <td><div class="cell-strong">{{ a.summary }}</div><div class="cell-sub">{{ a.category }}</div></td>
+              <td class="mono muted">{{ a.channel }}</td>
+              <td>
+                {% if a.dispatch_status == 'sent' %}<span class="badge badge-green"><span class="dot"></span>trimis</span>
+                {% elif a.dispatch_status == 'failed' %}<span class="badge badge-red"><span class="dot"></span>eșuat</span>
+                {% elif a.dispatch_status == 'skipped' %}<span class="badge badge-slate"><span class="dot"></span>filtrat</span>
+                {% else %}<span class="badge badge-slate"><span class="dot"></span>{{ a.dispatch_status }}</span>{% endif %}
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+        {% else %}
+        <div class="empty"><div class="empty-ico">{{ icon('alert', 22) }}</div><div class="empty-title">Nicio alertă încă</div><div class="empty-sub">se înregistrează la primul incident nou / reapărut</div></div>
+        {% endif %}
       </div>
     </div>
 

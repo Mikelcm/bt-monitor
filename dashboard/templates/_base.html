@@ -58,6 +58,16 @@
     <div class="sb-foot">
       <div class="sb-foot-label">Țintă monitorizată</div>
       <div class="sb-foot-value">{{ base_url }}</div>
+      {% if auth_enabled %}
+        {% set current_user = request.session.get('user') %}
+        {% if current_user %}
+        <div class="sb-user">
+          <span class="sb-user-av">{{ current_user[0]|upper }}</span>
+          <span class="sb-user-name">{{ current_user }}</span>
+          <a href="/logout" class="sb-user-out" title="Deconectare">{{ icon('arrow-right', 15) }}</a>
+        </div>
+        {% endif %}
+      {% endif %}
     </div>
   </aside>
 

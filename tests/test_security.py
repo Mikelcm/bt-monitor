@@ -66,8 +66,17 @@ def test_healthz_open():
     assert client.get("/healthz").status_code == 200
 
 
-def test_root_requires_auth():
-    assert client.get("/").status_code == 401
+def test_root_redirects_to_login():
+    # Browser navigation with no credentials is redirected to the login page
+    # (session-based human auth), not shown the raw Basic Auth popup.
+    r = client.get("/", follow_redirects=False)
+    assert r.status_code == 303
+    assert r.headers["location"].startswith("/login")
+
+
+def test_api_requires_auth_401():
+    # API/automation paths still return 401 (no redirect) when unauthenticated.
+    assert client.get("/api/state", follow_redirects=False).status_code == 401
 
 
 def test_root_with_auth():
@@ -76,6 +85,26 @@ def test_root_with_auth():
 
 def test_root_wrong_pass():
     assert client.get("/", headers=_auth(pw="nope")).status_code == 401
+
+
+def test_login_page_open():
+    assert client.get("/login").status_code == 200
+
+
+def test_login_success_sets_session():
+    fresh = TestClient(app)
+    r = fresh.post("/login", data={"username": "testuser", "password": "testpass"},
+                   headers={"Origin": "http://testserver"}, follow_redirects=False)
+    assert r.status_code == 303
+    # session cookie now lets us reach a protected page without Basic auth
+    assert fresh.get("/").status_code == 200
+
+
+def test_login_bad_credentials():
+    fresh = TestClient(app)
+    r = fresh.post("/login", data={"username": "testuser", "password": "wrong"},
+                   headers={"Origin": "http://testserver"})
+    assert r.status_code == 401
 
 
 def test_csrf_foreign_origin_blocked():

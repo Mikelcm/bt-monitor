@@ -68,7 +68,7 @@ from monitoring.incident_alerts import hub as incident_alert_hub
 from monitoring.uptime_persist import (
     prune_old as prune_uptime_checks, uptime_percent, recent_pings,
 )
-from db.models import Incident, IncidentObservation, Run, UptimeCheck, get_session, init_db
+from db.models import Alert, Incident, IncidentObservation, Run, UptimeCheck, get_session, init_db
 from dashboard.exports import build_incidents_csv, build_incidents_xlsx, build_audit_pdf
 from utils.time_ro import format_ro, format_ro_short, humanize_duration, to_ro
 from utils.logging_setup import configure_logging
@@ -217,13 +217,23 @@ app.mount("/static", StaticFiles(directory=str(DASH_DIR / "static")), name="stat
 # them; local dev may omit them (a loud warning is logged at startup).
 # ---------------------------------------------------------------------
 import base64 as _b64
+import hashlib as _hashlib
 import secrets as _secrets
+from urllib.parse import quote as _quote
 from fastapi.responses import Response as _Response
 
 _AUTH_USER = os.environ.get("BT_MONITOR_AUTH_USER")
 _AUTH_PASS = os.environ.get("BT_MONITOR_AUTH_PASS")
 _AUTH_ENABLED = bool(_AUTH_USER and _AUTH_PASS)
-_AUTH_EXEMPT = ("/static", "/healthz")
+_AUTH_EXEMPT = ("/static", "/healthz", "/login", "/logout")
+
+# Signing key for session cookies. Prefer an explicit secret; otherwise derive a
+# stable one from the credentials so sessions survive restarts without extra
+# config. When auth is off (dev) the key is irrelevant.
+_SESSION_SECRET = os.environ.get("BT_MONITOR_SECRET_KEY") or (
+    _hashlib.sha256(f"{_AUTH_USER}:{_AUTH_PASS}:btmonitor".encode()).hexdigest()
+    if _AUTH_ENABLED else "dev-insecure-no-auth"
+)
 
 if not _AUTH_ENABLED:
     logging.getLogger("dashboard").warning(
@@ -232,23 +242,40 @@ if not _AUTH_ENABLED:
     )
 
 
+def _basic_ok(request) -> bool:
+    """True if the request carries a valid HTTP Basic header (for automation)."""
+    hdr = request.headers.get("Authorization", "")
+    if not hdr.startswith("Basic "):
+        return False
+    try:
+        user, _, pw = _b64.b64decode(hdr[6:]).decode("utf-8", "ignore").partition(":")
+        return _secrets.compare_digest(user, _AUTH_USER or "") and _secrets.compare_digest(pw, _AUTH_PASS or "")
+    except Exception:
+        return False
+
+
 @app.middleware("http")
-async def _basic_auth(request, call_next):
-    if not _AUTH_ENABLED or request.url.path.startswith(_AUTH_EXEMPT):
+async def _auth_gate(request, call_next):
+    path = request.url.path
+    if not _AUTH_ENABLED or path.startswith(_AUTH_EXEMPT):
         return await call_next(request)
+    # 1) signed session cookie (the human login flow)
+    try:
+        if request.session.get("user"):
+            return await call_next(request)
+    except Exception:
+        pass
+    # 2) HTTP Basic header (automation / API clients)
     hdr = request.headers.get("Authorization", "")
     if hdr.startswith("Basic "):
-        try:
-            user, _, pw = _b64.b64decode(hdr[6:]).decode("utf-8", "ignore").partition(":")
-            # constant-time compare to avoid timing oracles
-            if _secrets.compare_digest(user, _AUTH_USER) and _secrets.compare_digest(pw, _AUTH_PASS):
-                return await call_next(request)
-        except Exception:
-            pass
-    return _Response(
-        "Unauthorized", status_code=401,
-        headers={"WWW-Authenticate": 'Basic realm="BT Monitor"'},
-    )
+        if _basic_ok(request):
+            return await call_next(request)
+        return _Response("Unauthorized", status_code=401,
+                         headers={"WWW-Authenticate": 'Basic realm="BT Monitor"'})
+    # 3) unauthenticated: APIs/exports get 401, browser pages go to the login form
+    if path.startswith(("/api", "/export")):
+        return _Response("Unauthorized", status_code=401)
+    return RedirectResponse(f"/login?next={_quote(path)}", status_code=303)
 
 
 # ---------------------------------------------------------------------
@@ -279,6 +306,68 @@ async def _csrf_same_origin(request, call_next):
                 )
                 return _Response("CSRF check failed", status_code=403)
     return await call_next(request)
+
+
+# SessionMiddleware must wrap the auth/csrf middlewares so request.session is
+# available inside them. Added LAST → outermost in the stack → runs first.
+from starlette.middleware.sessions import SessionMiddleware as _SessionMiddleware
+
+app.add_middleware(
+    _SessionMiddleware,
+    secret_key=_SESSION_SECRET,
+    session_cookie="btm_session",
+    same_site="strict",
+    https_only=False,   # set true behind TLS; the reverse proxy terminates HTTPS
+    max_age=60 * 60 * 12,   # 12h
+)
+
+# Expose auth state to all templates.
+templates.env.globals["auth_enabled"] = _AUTH_ENABLED
+
+
+# ---------------------------------------------------------------------
+# Login / logout (session-based human auth; Basic still works for automation)
+# ---------------------------------------------------------------------
+def _safe_next(nxt: str | None) -> str:
+    """Only allow local redirects (avoid open-redirect via ?next=)."""
+    if nxt and nxt.startswith("/") and not nxt.startswith("//"):
+        return nxt
+    return "/"
+
+
+@app.get("/login", response_class=HTMLResponse)
+async def login_form(request: Request, next: str = "/"):
+    if not _AUTH_ENABLED or request.session.get("user"):
+        return RedirectResponse("/", status_code=303)
+    return templates.TemplateResponse(
+        request=request, name="login.html",
+        context={"next": _safe_next(next), "error": None},
+    )
+
+
+@app.post("/login")
+async def login_submit(
+    request: Request,
+    username: str = Form(...),
+    password: str = Form(...),
+    next: str = Form("/"),
+):
+    if (_AUTH_ENABLED
+            and _secrets.compare_digest(username, _AUTH_USER or "")
+            and _secrets.compare_digest(password, _AUTH_PASS or "")):
+        request.session["user"] = username
+        return RedirectResponse(_safe_next(next), status_code=303)
+    return templates.TemplateResponse(
+        request=request, name="login.html",
+        context={"next": _safe_next(next), "error": "Utilizator sau parolă incorecte."},
+        status_code=401,
+    )
+
+
+@app.get("/logout")
+async def logout(request: Request):
+    request.session.clear()
+    return RedirectResponse("/login", status_code=303)
 
 
 @app.get("/healthz")
@@ -893,6 +982,7 @@ async def reports_page(request: Request, target_url: str | None = None):
 @app.get("/settings", response_class=HTMLResponse)
 async def settings_page(request: Request, changed: int = 0, error: str | None = None):
     init_db()
+    import config as _cfg
     base_url = get_base_url()
     recent = get_recent_targets()
     target_changed_at = get_target_changed_at()
@@ -906,8 +996,29 @@ async def settings_page(request: Request, changed: int = 0, error: str | None = 
         cats = sorted({c for c, in session.execute(
             select(Incident.category).distinct()
         ).all()})
+        alerts_count = session.scalar(select(sa_func.count(Alert.id))) or 0
+        recent_alerts = [
+            {
+                "kind": a.kind, "category": a.category, "severity": a.severity,
+                "channel": a.channel, "dispatch_status": a.dispatch_status,
+                "summary": a.summary, "fired_at": _ensure_utc(a.fired_at),
+            }
+            for a in session.scalars(
+                select(Alert).order_by(desc(Alert.fired_at)).limit(12)
+            ).all()
+        ]
 
     db_url = os.environ.get("BT_MONITOR_DB_URL") or f"sqlite:///{(ROOT / 'data' / 'bt_monitor.db').as_posix()}"
+    is_sqlite = db_url.startswith("sqlite")
+    security = {
+        "auth_enabled": _AUTH_ENABLED,
+        "current_user": request.session.get("user"),
+        "allowed_hosts": _cfg._allowed_hosts(),
+        "allow_private": _cfg._allow_private_targets(),
+        "log_format": os.environ.get("BT_MONITOR_LOG_FORMAT", "text"),
+        "db_backend": "PostgreSQL" if not is_sqlite else "SQLite",
+        "db_migrations": "create_all (dev)" if is_sqlite else "Alembic",
+    }
 
     return templates.TemplateResponse(
         request=request,
@@ -935,7 +1046,10 @@ async def settings_page(request: Request, changed: int = 0, error: str | None = 
                 "open": open_count,
                 "observations": obs_count,
                 "categories": cats,
+                "alerts": alerts_count,
             },
+            "security": security,
+            "recent_alerts": recent_alerts,
             "nav_open_count": _open_count_for(base_url),
             "global_status": _global_status(base_url),
         },
