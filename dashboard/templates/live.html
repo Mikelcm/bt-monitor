@@ -2,166 +2,96 @@
 {% from '_icons.html' import icon %}
 {% block title %}Monitorizare live — BT Monitor{% endblock %}
 {% block page_title %}Monitorizare live{% endblock %}
-{% block page_subtitle %}
-  <div class="page-subtitle">
-    Probe HTTP la fiecare ~30s pe fiecare țintă. Alerte la 3 probe consecutive eșuate (~90s) — desktop notification + Teams webhook (dacă e configurat).
-  </div>
-{% endblock %}
+{% block page_sub %}<div class="page-sub">Probe HTTP la ~30s pe fiecare țintă. Alertă la 3 probe eșuate consecutiv (~90s) — notificare desktop + Teams (dacă e configurat).</div>{% endblock %}
 
 {% block content %}
 
-  {# ---------------------------- PRIMARY TARGET ---------------------------- #}
-  <div class="card" style="margin-bottom: 16px;">
-    <div class="card-header">
-      <div>
-        <div class="card-title">Țintă principală</div>
-        <div class="card-sub">aceeași țintă pe care se efectuează scan-ul complet</div>
-      </div>
-    </div>
+  {# primary target #}
+  <div class="card" style="margin-bottom:16px">
+    <div class="card-head"><div><div class="card-title">Țintă principală</div><div class="card-sub">aceeași țintă pe care rulează scan-ul complet</div></div></div>
     <div class="card-body">
-      <div class="row" id="live-section" data-target="{{ live.target }}" style="gap:18px;">
-        <span class="led led-{{ live.state }}" id="live-led" style="width:14px;height:14px"></span>
-        <div style="flex:1; min-width:0;">
-          <div style="font-weight:700; font-size:16px;">
-            <span id="live-state-label">{{ {'up':'Disponibil', 'slow':'Lent', 'down':'Indisponibil', 'unknown':'Verificare…'}[live.state] }}</span>
-          </div>
-          <div class="muted" style="font-size:13px; margin-top:2px;">
-            <span class="mono">{{ live.target }}</span>
-            · HTTP <span id="live-status">{{ live.last_status or '—' }}</span>
-            · <span id="live-rt">{{ live.last_response_ms or '—' }}</span> ms
-            · ultima probă <span id="live-ago">—</span>
+      <div class="row" style="gap:13px" id="live-primary" data-target="{{ live.target }}">
+        <span class="led led-{{ live.state }}" id="live-led" style="width:13px;height:13px"></span>
+        <div style="flex:1;min-width:0">
+          <div style="font-weight:650;font-size:15px"><span id="live-state">{{ {'up':'Disponibil','slow':'Lent','down':'Indisponibil','unknown':'Verificare…'}[live.state] }}</span></div>
+          <div class="muted" style="font-size:12.5px">
+            <span class="mono">{{ live.target }}</span> · HTTP <span id="live-http">{{ live.last_status or '—' }}</span> · <span id="live-rt">{{ live.last_response_ms or '—' }}</span> ms · ultima probă <span id="live-ago">—</span>
           </div>
         </div>
       </div>
-
-      {# SLA windows from DB #}
-      <hr class="divider">
-      <div class="row" style="gap:32px;">
-        <div class="stat">
-          <div class="stat-num">{{ live.sla_24h if live.sla_24h is not none else '—' }}{% if live.sla_24h is not none %}%{% endif %}</div>
-          <div class="stat-label">Uptime 24h</div>
-        </div>
-        <div class="stat">
-          <div class="stat-num">{{ live.sla_7d if live.sla_7d is not none else '—' }}{% if live.sla_7d is not none %}%{% endif %}</div>
-          <div class="stat-label">Uptime 7 zile</div>
-        </div>
-        <div class="stat">
-          <div class="stat-num">{{ live.sla_30d if live.sla_30d is not none else '—' }}{% if live.sla_30d is not none %}%{% endif %}</div>
-          <div class="stat-label">Uptime 30 zile</div>
-        </div>
-        <div class="stat">
-          <div class="stat-num">{{ probes_count }}</div>
-          <div class="stat-label">Probe în DB (30z)</div>
-        </div>
+      <hr class="divider" style="margin:16px 0">
+      <div class="row" style="gap:32px">
+        <div class="metric"><span class="metric-value tnum">{{ live.sla_24h if live.sla_24h is not none else '—' }}{{ '%' if live.sla_24h is not none }}</span><span class="metric-label">Uptime 24h</span></div>
+        <div class="metric"><span class="metric-value tnum">{{ live.sla_7d if live.sla_7d is not none else '—' }}{{ '%' if live.sla_7d is not none }}</span><span class="metric-label">Uptime 7 zile</span></div>
+        <div class="metric"><span class="metric-value tnum">{{ live.sla_30d if live.sla_30d is not none else '—' }}{{ '%' if live.sla_30d is not none }}</span><span class="metric-label">Uptime 30 zile</span></div>
+        <div class="metric"><span class="metric-value tnum">{{ probes_count }}</span><span class="metric-label">Probe în DB</span></div>
       </div>
     </div>
   </div>
 
-  {# ---------------------------- EXTRA TARGETS ---------------------------- #}
+  {# critical pages #}
   {% if live_extras %}
-    <div class="card" style="margin-bottom: 16px;">
-      <div class="card-header">
-        <div>
-          <div class="card-title">Pagini critice monitorizate</div>
-          <div class="card-sub">{{ live_extras|length }} URL-uri suplimentare (homepage, login, transfer, contact etc.) verificate în paralel</div>
-        </div>
-      </div>
-      <div class="card-body flush">
-        <table class="table">
-          <thead>
-            <tr>
-              <th>Status</th>
-              <th>Țintă</th>
-              <th class="num">HTTP</th>
-              <th class="num">Latență</th>
-              <th class="num">Uptime 24h</th>
-              <th></th>
-            </tr>
-          </thead>
-          <tbody>
-            {% for e in live_extras %}
-              <tr>
-                <td><span class="led led-{{ e.state }}"></span> {{ {'up':'sus','slow':'lent','down':'jos','unknown':'?'}[e.state] }}</td>
-                <td class="mono" style="font-size:12px">{{ e.target }}</td>
-                <td class="num mono">{{ e.last_status or '—' }}</td>
-                <td class="num mono">{{ e.last_response_ms or '—' }} ms</td>
-                <td class="num mono">{{ e.uptime_24h_pct or '—' }}%</td>
-                <td>
-                  <form method="post" action="/live/remove" style="margin:0">
-                    <input type="hidden" name="url" value="{{ e.target }}">
-                    <button type="submit" class="btn btn-ghost btn-sm">Șterge</button>
-                  </form>
-                </td>
-              </tr>
-            {% endfor %}
-          </tbody>
-        </table>
-      </div>
+  <div class="card" style="margin-bottom:16px">
+    <div class="card-head"><div><div class="card-title">Pagini critice monitorizate</div><div class="card-sub">{{ live_extras|length }} URL-uri verificate în paralel</div></div></div>
+    <div class="card-body flush">
+      <table class="table">
+        <thead><tr><th class="col-tight">Stare</th><th>Țintă</th><th class="num col-tight">HTTP</th><th class="num col-tight">Latență</th><th class="num col-tight">Uptime 24h</th><th class="col-tight"></th></tr></thead>
+        <tbody>
+          {% for e in live_extras %}
+          <tr>
+            <td><span class="led led-{{ e.state }}"></span></td>
+            <td class="cell-url">{{ e.target }}</td>
+            <td class="num mono">{{ e.last_status or '—' }}</td>
+            <td class="num mono">{{ e.last_response_ms or '—' }} ms</td>
+            <td class="num mono">{{ e.sla_24h if e.sla_24h is not none else '—' }}{{ '%' if e.sla_24h is not none }}</td>
+            <td><form method="post" action="/live/remove" style="margin:0"><input type="hidden" name="url" value="{{ e.target }}"><button class="btn btn-ghost btn-sm" type="submit">{{ icon('trash', 13) }}</button></form></td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
     </div>
+  </div>
   {% endif %}
 
-  {# ---------------------------- ADD LIVE TARGET ---------------------------- #}
-  <div class="card" style="margin-bottom: 16px;">
-    <div class="card-header">
-      <div>
-        <div class="card-title">Adaugă pagină critică</div>
-        <div class="card-sub">Orice URL (domeniu sau pagină internă). Va fi probat în paralel cu țintă principală, la fiecare ~30s.</div>
-      </div>
-    </div>
+  {# add critical page #}
+  <div class="card" style="margin-bottom:16px">
+    <div class="card-head"><div><div class="card-title">Adaugă pagină critică</div><div class="card-sub">Orice URL (domeniu sau pagină internă), probat în paralel la ~30s</div></div></div>
     <div class="card-body">
-      <form method="post" action="/live/add" class="row">
-        <input type="text" name="url"
-               placeholder="https://www.bancatransilvania.ro/persoane-fizice/credite"
-               class="form-input" style="flex:1; max-width: 540px;">
-        <button type="submit" class="btn btn-primary">Adaugă</button>
+      <form method="post" action="/live/add" class="row" style="gap:10px;align-items:flex-end">
+        <div class="field" style="flex:1;min-width:280px;max-width:560px">
+          <input class="input" type="text" name="url" placeholder="https://www.bancatransilvania.ro/persoane-fizice/credite">
+        </div>
+        <button class="btn btn-primary" type="submit">{{ icon('plus', 14) }} Adaugă</button>
       </form>
-      <div class="form-help" style="margin-top:6px">
-        Exemple utile pentru o bancă: homepage, login, „transfer rapid", „contul meu", „contact".
-        Fiecare pagină are propriul SLA (uptime 24h/7d/30d) și incidente automate când cade.
-      </div>
+      <div class="field-help" style="margin-top:8px">Exemple pentru o bancă: homepage, login, „transfer rapid", „contul meu", „contact". Fiecare are propriul SLA + incidente automate la cădere.</div>
     </div>
   </div>
 
-  {# ---------------------------- RECENT ALERTS ---------------------------- #}
+  {# uptime alerts #}
   <div class="card">
-    <div class="card-header">
-      <div>
-        <div class="card-title">Alerte uptime recente</div>
-        <div class="card-sub">tranziții up ↔ slow ↔ down (max 50 în memorie)</div>
-      </div>
-    </div>
+    <div class="card-head"><div><div class="card-title">Alerte uptime recente</div><div class="card-sub">tranziții up ↔ slow ↔ down (max 50 în memorie)</div></div></div>
     <div class="card-body flush">
       {% if live.alerts %}
-        <table class="table">
-          <thead>
-            <tr>
-              <th>Când</th>
-              <th>Țintă</th>
-              <th>Tranziție</th>
-              <th>Mesaj</th>
-            </tr>
-          </thead>
-          <tbody>
-            {% for a in live.alerts %}
-              <tr>
-                <td class="mono" style="font-size:11px">{{ a.ts }}</td>
-                <td class="mono" style="font-size:12px">{{ a.url }}</td>
-                <td>
-                  {% if a.severity == 'critical' %}<span class="pill pill-critical">{{ a['from'] }} → {{ a.to }}</span>
-                  {% elif a.severity == 'warn' %}<span class="pill pill-warn">{{ a['from'] }} → {{ a.to }}</span>
-                  {% elif a.severity == 'recovery' %}<span class="pill pill-ok">{{ a['from'] }} → {{ a.to }}</span>
-                  {% else %}<span class="pill pill-muted">{{ a['from'] }} → {{ a.to }}</span>
-                  {% endif %}
-                </td>
-                <td style="font-size:12px">{{ a.message }}</td>
-              </tr>
-            {% endfor %}
-          </tbody>
-        </table>
+      <table class="table">
+        <thead><tr><th class="col-tight">Când</th><th>Țintă</th><th class="col-tight">Tranziție</th><th>Mesaj</th></tr></thead>
+        <tbody>
+          {% for a in live.alerts %}
+          <tr>
+            <td class="mono muted nowrap">{{ a.ts }}</td>
+            <td class="cell-url">{{ a.url }}</td>
+            <td>
+              {% if a.severity == 'critical' %}<span class="badge badge-red">{{ a['from'] }} → {{ a.to }}</span>
+              {% elif a.severity == 'warn' %}<span class="badge badge-amber">{{ a['from'] }} → {{ a.to }}</span>
+              {% elif a.severity == 'recovery' %}<span class="badge badge-green">{{ a['from'] }} → {{ a.to }}</span>
+              {% else %}<span class="badge badge-slate">{{ a['from'] }} → {{ a.to }}</span>{% endif %}
+            </td>
+            <td class="muted" style="font-size:12px">{{ a.message }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
       {% else %}
-        <div style="padding: 30px 20px; text-align: center; color: var(--muted);">
-          Nicio alertă încă — site-ul a fost stabil de la pornirea watcher-ului.
-        </div>
+      <div class="empty"><div class="empty-ico" style="background:var(--green-soft);color:var(--green-text)">{{ icon('check', 22) }}</div><div class="empty-title">Nicio alertă</div><div class="empty-sub">site-ul a fost stabil de la pornirea watcher-ului</div></div>
       {% endif %}
     </div>
   </div>
@@ -170,28 +100,21 @@
 
 {% block scripts %}
 <script>
-  async function tick() {
-    try {
-      const r = await fetch('/api/uptime', { cache: 'no-store' });
-      const d = await r.json();
-      const p = d.primary;
-      if (p) {
-        document.getElementById('live-led').className = 'led led-' + p.state;
-        document.getElementById('live-led').style.width = '14px';
-        document.getElementById('live-led').style.height = '14px';
-        const labels = {'up':'Disponibil','slow':'Lent','down':'Indisponibil','unknown':'Verificare…'};
-        document.getElementById('live-state-label').textContent = labels[p.state] || p.state;
-        document.getElementById('live-status').textContent = p.last_status ?? '—';
-        document.getElementById('live-rt').textContent = p.last_response_ms ?? '—';
-        document.getElementById('live-uptime').textContent = (p.uptime_24h_pct ?? '—') + '%';
-        if (p.last_seen_ts) {
-          const ago = Math.round((Date.now()/1000) - p.last_seen_ts);
-          document.getElementById('live-ago').textContent = ago + 's în urmă';
-        }
+(function(){
+  var labels={up:'Disponibil',slow:'Lent',down:'Indisponibil',unknown:'Verificare…'};
+  function tick(){
+    fetch('/api/uptime',{cache:'no-store'}).then(r=>r.json()).then(d=>{
+      var p=d.primary; if(p){
+        document.getElementById('live-led').className='led led-'+p.state;
+        document.getElementById('live-led').style.width='13px';document.getElementById('live-led').style.height='13px';
+        document.getElementById('live-state').textContent=labels[p.state]||p.state;
+        document.getElementById('live-http').textContent=p.last_status??'—';
+        document.getElementById('live-rt').textContent=p.last_response_ms??'—';
+        if(p.last_seen_ts){var ago=Math.round(Date.now()/1000-p.last_seen_ts);document.getElementById('live-ago').textContent=ago+'s în urmă';}
       }
-    } catch (e) {}
-    setTimeout(tick, 5000);
+    }).catch(()=>{}).finally(()=>setTimeout(tick,5000));
   }
   tick();
+})();
 </script>
 {% endblock %}

@@ -2,125 +2,69 @@
 {% from '_icons.html' import icon %}
 {% block title %}Scan #{{ run.id }} — BT Monitor{% endblock %}
 {% block page_title %}Scan #{{ run.id }}{% endblock %}
-{% block page_subtitle %}
-  <div class="page-subtitle">
-    {{ run.base_url }} · {{ run.started_at | dt_ro }}
-    · durată {{ run.duration_s or '—' }}s
-  </div>
-{% endblock %}
-{% block page_actions %}
-  <a href="/history" class="btn btn-ghost">← Înapoi la istoric</a>
-{% endblock %}
+{% block page_sub %}<div class="page-sub">{{ run.base_url }} · {{ run.started_at | dt_ro }} · durată {{ run.duration_s or '—' }}s</div>{% endblock %}
+{% block page_actions %}<a href="/history" class="btn btn-ghost">{{ icon('chevron-right', 14) }} Înapoi</a>{% endblock %}
 
 {% block content %}
 
-  {# Top metrics for this run #}
-  <div class="card" style="margin-bottom: 16px;">
-    <div class="hero-metric">
+  {% set tone = 'is-muted' %}
+  {% if run.health_score is not none %}
+    {% if run.status == 'critical' %}{% set tone = 'is-red' %}
+    {% elif run.status == 'warn' %}{% set tone = 'is-amber' %}
+    {% elif run.status == 'healthy' %}{% set tone = 'is-green' %}{% endif %}
+  {% endif %}
+
+  <div class="card" style="margin-bottom:16px">
+    <div class="card-body" style="display:flex;align-items:center;gap:28px;flex-wrap:wrap">
       <div>
-        <div class="metric-value
-          {%- if run.health_score is none %} is-muted
-          {%- elif run.status == 'critical' %} is-critical
-          {%- elif run.status == 'warn' %} is-warn
-          {%- elif run.status == 'healthy' %} is-ok
-          {%- else %} is-muted{% endif %}">
-          {{ run.health_score if run.health_score is not none else '—' }}
-        </div>
-        <div class="metric-label">Health score</div>
+        <div class="stat-value {{ tone }}" style="font-size:44px">{{ run.health_score if run.health_score is not none else '—' }}</div>
+        <div class="stat-label">Health score</div>
       </div>
-      <div class="metric-meta">
-        <div class="row">
-          {% if run.status == 'critical' %}
-            <span class="pill pill-critical"><span class="pill-dot"></span>{{ run.status }}</span>
-          {% elif run.status == 'warn' %}
-            <span class="pill pill-warn"><span class="pill-dot"></span>{{ run.status }}</span>
-          {% elif run.status == 'healthy' %}
-            <span class="pill pill-ok"><span class="pill-dot"></span>{{ run.status }}</span>
-          {% else %}
-            <span class="pill pill-muted"><span class="pill-dot"></span>{{ run.status }}</span>
-          {% endif %}
+      <div style="flex:1;min-width:260px">
+        <div class="row" style="margin-bottom:12px">
+          {% if run.status == 'critical' %}<span class="badge badge-red"><span class="dot"></span>{{ run.status }}</span>
+          {% elif run.status == 'warn' %}<span class="badge badge-amber"><span class="dot"></span>{{ run.status }}</span>
+          {% elif run.status == 'healthy' %}<span class="badge badge-green"><span class="dot"></span>{{ run.status }}</span>
+          {% else %}<span class="badge badge-slate"><span class="dot"></span>{{ run.status }}</span>{% endif %}
         </div>
         {% if run.summary %}
-        <div class="metric-stats">
-          <div class="stat">
-            <div class="stat-num">{{ run.summary.pages or 0 }}</div>
-            <div class="stat-label">Pagini</div>
-          </div>
-          <div class="stat">
-            <div class="stat-num {% if run.summary.doc_leaks %}is-critical{% endif %}">{{ run.summary.doc_leaks or 0 }}</div>
-            <div class="stat-label">Scurgeri doc</div>
-          </div>
-          <div class="stat">
-            <div class="stat-num">{{ run.summary.broken_links or 0 }}</div>
-            <div class="stat-label">Link-uri rupte</div>
-          </div>
-          <div class="stat">
-            <div class="stat-num">{{ run.summary.slow_pages or 0 }}</div>
-            <div class="stat-label">Pagini lente</div>
-          </div>
-          <div class="stat">
-            <div class="stat-num">{{ run.summary.asset_failures or 0 }}</div>
-            <div class="stat-label">Asset-uri lipsă</div>
-          </div>
-          <div class="stat">
-            <div class="stat-num">{{ run.summary.form_issues or 0 }}</div>
-            <div class="stat-label">Formulare</div>
-          </div>
-          <div class="stat">
-            <div class="stat-num">{{ run.summary.seo_issues or 0 }}</div>
-            <div class="stat-label">SEO</div>
-          </div>
+        <div class="stat-grid">
+          <div class="stat"><span class="stat-label">Pagini</span><span class="stat-value" style="font-size:22px">{{ run.summary.pages or 0 }}</span></div>
+          <div class="stat"><span class="stat-label">Scurgeri doc</span><span class="stat-value {{ 'is-red' if run.summary.doc_leaks }}" style="font-size:22px">{{ run.summary.doc_leaks or 0 }}</span></div>
+          <div class="stat"><span class="stat-label">Link-uri rupte</span><span class="stat-value" style="font-size:22px">{{ run.summary.broken_links or 0 }}</span></div>
+          <div class="stat"><span class="stat-label">Pagini lente</span><span class="stat-value" style="font-size:22px">{{ run.summary.slow_pages or 0 }}</span></div>
+          <div class="stat"><span class="stat-label">Asset-uri lipsă</span><span class="stat-value" style="font-size:22px">{{ run.summary.asset_failures or 0 }}</span></div>
+          <div class="stat"><span class="stat-label">Formulare</span><span class="stat-value" style="font-size:22px">{{ run.summary.form_issues or 0 }}</span></div>
+          <div class="stat"><span class="stat-label">SEO</span><span class="stat-value" style="font-size:22px">{{ run.summary.seo_issues or 0 }}</span></div>
         </div>
         {% endif %}
       </div>
     </div>
   </div>
 
-  {# Incidents observed in this specific run #}
   <div class="card">
-    <div class="card-header">
-      <div>
-        <div class="card-title">Incidente observate în acest scan</div>
-        <div class="card-sub">{{ observed|length }} incidente — sortate după severitate</div>
-      </div>
-    </div>
+    <div class="card-head"><div><div class="card-title">Incidente observate în acest scan</div><div class="card-sub">{{ observed|length }} incidente · sortate după severitate</div></div></div>
     <div class="card-body flush">
       {% if observed %}
-        <table class="table">
-          <thead>
-            <tr>
-              <th style="width:60px">Sev</th>
-              <th style="width:140px">Categorie</th>
-              <th>Detalii</th>
-              <th style="width:120px">Prima oară</th>
-              <th style="width:100px">Stare</th>
-            </tr>
-          </thead>
-          <tbody>
-            {% for it in observed %}
-              <tr>
-                <td><span class="sev-tag sev-tag-{{ it.severity }}">{{ it.severity[:4] }}</span></td>
-                <td><span class="tag">{{ it.category }}</span></td>
-                <td>
-                  <div>{{ it.summary }}</div>
-                  {% if it.page_url %}<div class="mono muted" style="font-size:11px;margin-top:2px">{{ it.page_url }}</div>{% endif %}
-                </td>
-                <td class="mono muted" style="font-size:11px">{{ it.first_seen_at | dt_ro_short }}</td>
-                <td>
-                  {% if it.is_open %}
-                    <span class="pill pill-critical" style="font-size:10px">deschis</span>
-                  {% else %}
-                    <span class="pill pill-ok" style="font-size:10px">rezolvat</span>
-                  {% endif %}
-                </td>
-              </tr>
-            {% endfor %}
-          </tbody>
-        </table>
+      <table class="table">
+        <thead><tr><th class="col-tight">Sev</th><th class="col-tight">Categorie</th><th>Detalii</th><th class="col-tight">Prima oară</th><th class="col-tight">Stare</th></tr></thead>
+        <tbody>
+          {% for it in observed %}
+          <tr>
+            <td><span class="sev sev-{{ it.severity }}">{{ it.severity[:4] }}</span></td>
+            <td><span class="tag">{{ it.category }}</span></td>
+            <td>
+              <div class="cell-strong">{{ it.summary }}</div>
+              {% if it.page_url %}<div class="cell-url">{{ it.page_url }}</div>{% endif %}
+            </td>
+            <td class="mono muted nowrap">{{ it.first_seen_at | dt_ro_short }}</td>
+            <td>{% if it.is_open %}<span class="badge badge-red"><span class="dot"></span>deschis</span>{% else %}<span class="badge badge-green"><span class="dot"></span>rezolvat</span>{% endif %}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
       {% else %}
-        <div style="padding: 30px 20px; text-align: center; color: var(--muted);">
-          ✓ Niciun incident observat în acest scan.
-        </div>
+      <div class="empty"><div class="empty-ico" style="background:var(--green-soft);color:var(--green-text)">{{ icon('check', 22) }}</div><div class="empty-title">Niciun incident</div><div class="empty-sub">observat în acest scan</div></div>
       {% endif %}
     </div>
   </div>

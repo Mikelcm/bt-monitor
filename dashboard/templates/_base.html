@@ -6,103 +6,98 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}BT Monitor{% endblock %}</title>
   <link rel="stylesheet" href="/static/app.css">
-  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%230f172a'/%3E%3Ctext x='32' y='44' font-family='system-ui' font-size='30' font-weight='800' text-anchor='middle' fill='white'%3EBT%3C/text%3E%3C/svg%3E">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%230f172a'/%3E%3Ctext x='32' y='44' font-family='system-ui' font-size='28' font-weight='800' text-anchor='middle' fill='white'%3EBT%3C/text%3E%3C/svg%3E">
   {% block head_extra %}{% endblock %}
 </head>
 <body>
+<div class="app">
 
-<aside class="sidebar">
-  <div class="sidebar-brand">
-    <div class="brand-logo">BT</div>
-    <div class="brand-text">
-      <div class="brand-title">Monitor</div>
-      <div class="brand-sub">Website health</div>
+  {# ===================== SIDEBAR ===================== #}
+  <aside class="sidebar">
+    <div class="sb-brand">
+      <div class="sb-logo">BT</div>
+      <div class="sb-brand-text">
+        <div class="sb-brand-name">Monitor</div>
+        <div class="sb-brand-sub">Website Health</div>
+      </div>
     </div>
-  </div>
 
-  <nav class="sidebar-nav">
-    <a href="/" class="nav-item {% if active == 'overview' %}is-active{% endif %}">
-      <span class="nav-ico">{{ icon('overview', 18) }}</span>
-      <span class="nav-label">Privire generală</span>
-    </a>
-    <a href="/incidents" class="nav-item {% if active == 'incidents' %}is-active{% endif %}">
-      <span class="nav-ico">{{ icon('alert', 18) }}</span>
-      <span class="nav-label">Incidente</span>
-      {% if nav_open_count and nav_open_count > 0 %}
-        <span class="nav-badge nav-badge-critical">{{ nav_open_count }}</span>
-      {% endif %}
-    </a>
-    <a href="/history" class="nav-item {% if active == 'history' %}is-active{% endif %}">
-      <span class="nav-ico">{{ icon('history', 18) }}</span>
-      <span class="nav-label">Istoric scan-uri</span>
-    </a>
-    <a href="/live" class="nav-item {% if active == 'live' %}is-active{% endif %}">
-      <span class="nav-ico">{{ icon('live', 18) }}</span>
-      <span class="nav-label">Monitorizare live</span>
-    </a>
-    <a href="/reports" class="nav-item {% if active == 'reports' %}is-active{% endif %}">
-      <span class="nav-ico">{{ icon('download', 18) }}</span>
-      <span class="nav-label">Rapoarte / Export</span>
-    </a>
-    <a href="/settings" class="nav-item {% if active == 'settings' %}is-active{% endif %}">
-      <span class="nav-ico">{{ icon('settings', 18) }}</span>
-      <span class="nav-label">Setări</span>
-    </a>
-  </nav>
+    <nav class="sb-nav">
+      <div class="sb-group-label">Monitorizare</div>
+      <a href="/" class="sb-item {{ 'active' if active == 'overview' }}">
+        <span class="sb-ico">{{ icon('overview', 18) }}</span>
+        <span class="sb-label">Privire generală</span>
+      </a>
+      <a href="/incidents" class="sb-item {{ 'active' if active == 'incidents' }}">
+        <span class="sb-ico">{{ icon('alert', 18) }}</span>
+        <span class="sb-label">Incidente</span>
+        {% if nav_open_count and nav_open_count > 0 %}<span class="sb-badge">{{ nav_open_count }}</span>{% endif %}
+      </a>
+      <a href="/live" class="sb-item {{ 'active' if active == 'live' }}">
+        <span class="sb-ico">{{ icon('live', 18) }}</span>
+        <span class="sb-label">Monitorizare live</span>
+      </a>
 
-  <div class="sidebar-foot">
-    <div class="foot-row">
-      <span class="foot-label">Țintă curentă</span>
+      <div class="sb-group-label">Analiză</div>
+      <a href="/history" class="sb-item {{ 'active' if active == 'history' }}">
+        <span class="sb-ico">{{ icon('history', 18) }}</span>
+        <span class="sb-label">Istoric scan-uri</span>
+      </a>
+      <a href="/reports" class="sb-item {{ 'active' if active == 'reports' }}">
+        <span class="sb-ico">{{ icon('download', 18) }}</span>
+        <span class="sb-label">Rapoarte &amp; Export</span>
+      </a>
+
+      <div class="sb-group-label">Administrare</div>
+      <a href="/settings" class="sb-item {{ 'active' if active == 'settings' }}">
+        <span class="sb-ico">{{ icon('settings', 18) }}</span>
+        <span class="sb-label">Setări</span>
+      </a>
+    </nav>
+
+    <div class="sb-foot">
+      <div class="sb-foot-label">Țintă monitorizată</div>
+      <div class="sb-foot-value">{{ base_url }}</div>
     </div>
-    <div class="foot-value">{{ base_url }}</div>
-  </div>
-</aside>
+  </aside>
 
-<main class="main">
+  {# ===================== MAIN ===================== #}
+  <div class="main">
 
-  {# ----------------- GLOBAL STATUS BAR (persistent) ----------------- #}
-  {% if global_status %}
-    <div class="status-bar status-bar-{{ global_status.tone }}">
-      <div class="status-bar-inner">
-        <div class="status-bar-left">
+    {% if global_status %}
+    <div class="topbar">
+      <div class="topbar-inner">
+        <div class="tb-status tone-{{ global_status.tone }}">
           <span class="led led-{{ global_status.led_state }}"></span>
-          <span class="status-bar-text">
-            <strong>{{ global_status.title }}</strong>
-            <span class="muted">· {{ global_status.detail }}</span>
-          </span>
+          <span><strong>{{ global_status.title }}</strong> <span class="muted">· {{ global_status.detail }}</span></span>
         </div>
-        <div class="status-bar-right">
-          {% if global_status.last_scan_text %}
-            <span class="status-bar-meta">{{ icon('clock', 14) }} ultim scan: {{ global_status.last_scan_text }}</span>
-          {% endif %}
-          {% if global_status.open_critical > 0 %}
-            <a href="/incidents?status=open&severity=critical" class="status-bar-link">
-              {{ icon('alert', 14) }} {{ global_status.open_critical }} critice
-            </a>
-          {% endif %}
-        </div>
+        <div class="tb-spacer"></div>
+        {% if global_status.last_scan_text %}
+          <span class="tb-meta">{{ icon('clock', 14) }} ultim scan {{ global_status.last_scan_text }}</span>
+        {% endif %}
+        {% if global_status.open_critical and global_status.open_critical > 0 %}
+          <a href="/incidents?status=open&severity=critical" class="tb-link">{{ icon('alert', 13) }} {{ global_status.open_critical }} critice</a>
+        {% endif %}
       </div>
     </div>
-  {% endif %}
+    {% endif %}
 
-  <header class="page-header">
-    <div class="page-header-inner">
-      <div class="page-header-left">
-        <h1 class="page-title">{% block page_title %}{% endblock %}</h1>
-        {% block page_subtitle %}{% endblock %}
-      </div>
-      <div class="page-header-right">
-        {% block page_actions %}{% endblock %}
-      </div>
-    </div>
-  </header>
+    <main class="page">
+      <div class="page-inner">
+        <div class="page-head">
+          <div>
+            <h1 class="page-title">{% block page_title %}{% endblock %}</h1>
+            {% block page_sub %}{% endblock %}
+          </div>
+          <div class="page-actions">{% block page_actions %}{% endblock %}</div>
+        </div>
 
-  <div class="page-body">
-    {% block content %}{% endblock %}
+        {% block content %}{% endblock %}
+      </div>
+    </main>
   </div>
-</main>
 
+</div>
 {% block scripts %}{% endblock %}
-
 </body>
 </html>

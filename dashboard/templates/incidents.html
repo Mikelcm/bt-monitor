@@ -2,140 +2,101 @@
 {% from '_icons.html' import icon %}
 {% block title %}Incidente — BT Monitor{% endblock %}
 {% block page_title %}Incidente{% endblock %}
-{% block page_subtitle %}
-  <div class="page-subtitle">
-    Fiecare incident are identitate stabilă (fingerprint). Dacă reapare după ce a fost rezolvat, timeline-ul original e păstrat.
-  </div>
-{% endblock %}
-{% block page_actions %}
-  <a href="/reports" class="btn">{{ icon('download', 14) }} Export</a>
-{% endblock %}
+{% block page_sub %}<div class="page-sub">Fiecare incident are identitate stabilă. Dacă reapare după rezolvare, păstrăm timeline-ul original.</div>{% endblock %}
+{% block page_actions %}<a href="/reports" class="btn">{{ icon('download', 14) }} Export</a>{% endblock %}
 
 {% block content %}
 
-  {# ---------------------------- SEVERITY CARDS ---------------------------- #}
-  <div class="sev-grid" style="margin-bottom: 18px;">
-    {% for sev, label in [('critical','Critic'), ('serious','Sever'), ('moderate','Moderat'), ('minor','Minor')] %}
-      <a class="sev-card sev-{{ sev }} {% if severity == sev %}is-active{% endif %}"
-         href="/incidents?status={{ status }}{% if category %}&category={{ category }}{% endif %}{% if severity != sev %}&severity={{ sev }}{% endif %}">
-        <div class="sev-card-num">{{ sev_counts.get(sev, 0) }}</div>
-        <div>
-          <div class="sev-card-label">{{ label }}</div>
-          <div style="font-size: 11px; color: var(--muted-2); margin-top: 2px;">
-            {% if sev_counts.get(sev, 0) == 0 %}niciun incident
-            {% elif sev_counts.get(sev, 0) == 1 %}1 incident
-            {% else %}{{ sev_counts.get(sev, 0) }} incidente{% endif %}
-          </div>
-        </div>
-      </a>
+  {# severity selector cards #}
+  <div class="sevcards" style="margin-bottom:16px">
+    {% for sev, label in [('critical','Critic'),('serious','Sever'),('moderate','Moderat'),('minor','Minor')] %}
+    <a class="sevcard c-{{ sev }} {{ 'on' if severity == sev }}"
+       href="/incidents?status={{ status }}{% if category %}&category={{ category }}{% endif %}{% if severity != sev %}&severity={{ sev }}{% endif %}">
+      <span class="sevcard-num">{{ sev_counts.get(sev, 0) }}</span>
+      <span>
+        <span class="sevcard-label">{{ label }}</span>
+        <span class="sevcard-note" style="display:block">
+          {% set n = sev_counts.get(sev, 0) %}
+          {% if n == 0 %}fără incidente{% elif n == 1 %}1 incident{% else %}{{ n }} incidente{% endif %}
+        </span>
+      </span>
+    </a>
     {% endfor %}
   </div>
 
-  {# ---------------------------- FILTERS ---------------------------- #}
-  <div class="filter-bar">
+  {# filters #}
+  <div class="filterbar">
     <div class="filter-group">
-      <span class="filter-label">Status:</span>
-      {% for s, lbl in [('open','Deschise'), ('resolved','Rezolvate'), ('all','Toate')] %}
-        <a class="chip {% if status == s %}chip-on{% endif %}"
-           href="/incidents?status={{ s }}{% if category %}&category={{ category }}{% endif %}{% if severity %}&severity={{ severity }}{% endif %}">{{ lbl }}</a>
+      <span class="filter-label">Status</span>
+      {% for s, lbl in [('open','Deschise'),('resolved','Rezolvate'),('all','Toate')] %}
+      <a class="chip {{ 'on' if status == s }}" href="/incidents?status={{ s }}{% if category %}&category={{ category }}{% endif %}{% if severity %}&severity={{ severity }}{% endif %}">{{ lbl }}</a>
       {% endfor %}
     </div>
     <div class="filter-group">
-      <span class="filter-label">Categorie:</span>
-      <a class="chip {% if not category %}chip-on{% endif %}"
-         href="/incidents?status={{ status }}{% if severity %}&severity={{ severity }}{% endif %}">toate</a>
+      <span class="filter-label">Categorie</span>
+      <a class="chip {{ 'on' if not category }}" href="/incidents?status={{ status }}{% if severity %}&severity={{ severity }}{% endif %}">toate</a>
       {% for cat, cnt in cat_counts %}
-        <a class="chip {% if category == cat %}chip-on{% endif %}"
-           href="/incidents?status={{ status }}&category={{ cat }}{% if severity %}&severity={{ severity }}{% endif %}">{{ cat }} <span class="chip-count">{{ cnt }}</span></a>
+      <a class="chip {{ 'on' if category == cat }}" href="/incidents?status={{ status }}&category={{ cat }}{% if severity %}&severity={{ severity }}{% endif %}">{{ cat }} <span class="chip-count">{{ cnt }}</span></a>
       {% endfor %}
     </div>
     {% if severity %}
     <div class="filter-group">
-      <span class="filter-label">Filtru sev:</span>
-      <a class="chip chip-on" href="/incidents?status={{ status }}{% if category %}&category={{ category }}{% endif %}">{{ severity }} ✕</a>
+      <span class="filter-label">Severitate</span>
+      <a class="chip on" href="/incidents?status={{ status }}{% if category %}&category={{ category }}{% endif %}">{{ severity }} {{ icon('x', 12) }}</a>
     </div>
     {% endif %}
   </div>
 
-  {# ---------------------------- TABLE ---------------------------- #}
   <div class="card">
-    <div class="card-header">
+    <div class="card-head">
       <div>
-        <div class="card-title">
-          {{ total }} incidente
-          {% if status == 'open' %}deschise{% elif status == 'resolved' %}rezolvate{% endif %}
-        </div>
-        <div class="card-sub">sortate după severitate apoi cea mai recentă observare</div>
+        <div class="card-title">{{ total }} incidente {% if status == 'open' %}deschise{% elif status == 'resolved' %}rezolvate{% endif %}</div>
+        <div class="card-sub">sortate după severitate, apoi cea mai recentă observare</div>
       </div>
     </div>
     <div class="card-body flush">
       {% if items %}
-        <table class="table">
-          <thead>
-            <tr>
-              <th style="width:60px">Sev</th>
-              <th style="width:140px">Categorie</th>
-              <th>Detalii</th>
-              <th style="width:90px" class="num">Vechime</th>
-              <th style="width:180px">Stare</th>
-            </tr>
-          </thead>
-          <tbody>
-            {% for it in items %}
-              <tr>
-                <td><span class="sev-tag sev-tag-{{ it.severity }}">{{ it.severity[:4] }}</span></td>
-                <td><span class="tag">{{ it.category }}</span></td>
-                <td>
-                  <div>{{ it.summary }}</div>
-                  {% if it.page_url %}<div class="mono muted" style="font-size:11px; margin-top:3px">{{ it.page_url }}</div>{% endif %}
-                </td>
-                <td class="num mono">{% if it.age_days >= 1 %}{{ it.age_days }}z{% else %}<1z{% endif %}</td>
-                <td>
-                  {% if it.is_open %}
-                    <span class="pill pill-critical" style="font-size:10px">deschis</span>
-                  {% else %}
-                    <span class="pill pill-ok" style="font-size:10px">rezolvat</span>
-                  {% endif %}
-                  <div class="muted" style="font-size:11px; margin-top:3px">
-                    {% if it.first_seen_at %}prima oară: {{ it.first_seen_at | dt_ro }}{% endif %}
-                  </div>
-                </td>
-              </tr>
-            {% endfor %}
-          </tbody>
-        </table>
+      <table class="table">
+        <thead><tr><th class="col-tight">Sev</th><th class="col-tight">Categorie</th><th>Detalii</th><th class="num col-tight">Vechime</th><th class="col-tight">Stare</th></tr></thead>
+        <tbody>
+          {% for it in items %}
+          <tr>
+            <td><span class="sev sev-{{ it.severity }}">{{ it.severity[:4] }}</span></td>
+            <td><span class="tag">{{ it.category }}</span></td>
+            <td>
+              <div class="cell-strong">{{ it.summary }}</div>
+              {% if it.page_url %}<div class="cell-url">{{ it.page_url }}</div>{% endif %}
+              {% if it.first_seen_at %}<div class="cell-sub">prima oară: {{ it.first_seen_at | dt_ro }}</div>{% endif %}
+            </td>
+            <td class="num mono muted">{% if it.age_days >= 1 %}{{ it.age_days }}z{% else %}&lt;1z{% endif %}</td>
+            <td>
+              {% if it.is_open %}<span class="badge badge-red"><span class="dot"></span>deschis</span>
+              {% else %}<span class="badge badge-green"><span class="dot"></span>rezolvat</span>{% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
       {% else %}
-        <div class="empty" style="margin: 0; border: none;">
-          <div class="empty-emoji" style="color: var(--ok)">✓</div>
-          <div class="empty-title">Niciun incident</div>
-          <div class="empty-sub">cu filtrele curente</div>
-        </div>
+      <div class="empty">
+        <div class="empty-ico" style="background:var(--green-soft);color:var(--green-text)">{{ icon('check', 22) }}</div>
+        <div class="empty-title">Niciun incident</div>
+        <div class="empty-sub">cu filtrele curente</div>
+      </div>
       {% endif %}
     </div>
   </div>
 
-  {# ---------------------------- TREND ---------------------------- #}
   {% if chart_points %}
-    <div class="card" style="margin-top: 16px;">
-      <div class="card-header">
-        <div>
-          <div class="card-title">Tendință health score</div>
-          <div class="card-sub">ultimele {{ chart_points|length }} scan-uri pentru această țintă</div>
-        </div>
-      </div>
-      <div class="card-body">
-        <svg class="sparkline" viewBox="0 0 100 60" preserveAspectRatio="none">
-          <polyline fill="none" stroke="var(--brand)" stroke-width="1.5"
-            points="{% for p in chart_points %}{{ p.x }},{{ p.y * 0.6 + 5 }} {% endfor %}" />
-          {% for p in chart_points %}
-            <circle cx="{{ p.x }}" cy="{{ p.y * 0.6 + 5 }}" r="1.2"
-              fill="{% if p.status == 'critical' %}var(--critical){% elif p.status == 'warn' %}var(--warn){% elif p.status == 'healthy' %}var(--ok){% else %}var(--muted){% endif %}">
-              <title>Run #{{ p.run_id }} · score {{ p.score }} · {{ p.status }} · {{ p.started }}</title>
-            </circle>
-          {% endfor %}
-        </svg>
-      </div>
+  <div class="card section-gap">
+    <div class="card-head"><div><div class="card-title">Tendință health score</div><div class="card-sub">ultimele {{ chart_points|length }} scan-uri</div></div></div>
+    <div class="card-body">
+      <svg class="spark" viewBox="0 0 100 56" preserveAspectRatio="none">
+        <polyline fill="none" stroke="var(--accent)" stroke-width="1.5" points="{% for p in chart_points %}{{ p.x }},{{ (p.y * 0.52) + 4 }} {% endfor %}"></polyline>
+        {% for p in chart_points %}<circle cx="{{ p.x }}" cy="{{ (p.y * 0.52) + 4 }}" r="1.5" fill="{% if p.status == 'critical' %}var(--red){% elif p.status == 'warn' %}var(--amber){% elif p.status == 'healthy' %}var(--green){% else %}var(--slate-400){% endif %}"><title>Run #{{ p.run_id }} · {{ p.score }}</title></circle>{% endfor %}
+      </svg>
     </div>
+  </div>
   {% endif %}
 
 {% endblock %}

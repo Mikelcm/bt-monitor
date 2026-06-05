@@ -2,212 +2,106 @@
 {% from '_icons.html' import icon %}
 {% block title %}Setări — BT Monitor{% endblock %}
 {% block page_title %}Setări{% endblock %}
-{% block page_subtitle %}
-  <div class="page-subtitle">Configurare țintă, alerte, baza de date.</div>
-{% endblock %}
+{% block page_sub %}<div class="page-sub">Configurare țintă, alerte, scheduler și bază de date.</div>{% endblock %}
 
 {% block content %}
 
   {% if changed_flag %}
-    <div class="alert-ribbon" style="background: var(--ok-soft); color: var(--ok-dark); border-color: var(--ok); margin-bottom: 18px;">
-      <div class="alert-ribbon-ico" style="background: var(--ok);">✓</div>
-      <div class="alert-ribbon-body">
-        <div class="alert-ribbon-title">Țintă salvată cu succes</div>
-        <div class="alert-ribbon-text">Watcher-ul a fost re-țintit. Ținta nouă: <span class="mono">{{ base_url }}</span></div>
-      </div>
-    </div>
+  <div class="banner ok"><div class="banner-ico">{{ icon('check', 18) }}</div><div class="banner-body"><div class="banner-title">Țintă salvată</div><div class="banner-text">Watcher-ul a fost re-țintit: <span class="mono">{{ base_url }}</span></div></div></div>
   {% endif %}
   {% if error_flag == 'invalid_url' %}
-    <div class="alert-ribbon" style="margin-bottom: 18px;">
-      <div class="alert-ribbon-ico">!</div>
-      <div class="alert-ribbon-body">
-        <div class="alert-ribbon-title">URL invalid</div>
-        <div class="alert-ribbon-text">Verifică că URL-ul conține un host valid (ex: <span class="mono">https://exemplu.ro</span>).</div>
-      </div>
-    </div>
+  <div class="banner"><div class="banner-ico">{{ icon('x', 18) }}</div><div class="banner-body"><div class="banner-title">URL invalid sau blocat</div><div class="banner-text">Verifică formatul și că host-ul e permis (anti-SSRF).</div></div></div>
   {% endif %}
 
-  {# ---------------------------- TARGET URL ---------------------------- #}
-  <div class="card" style="margin-bottom: 16px;">
-    <div class="card-header">
-      <div>
-        <div class="card-title">Țintă principală pentru scan</div>
-        <div class="card-sub">URL-ul pe care se efectuează scan-ul complet (links, perf, assets, etc.)</div>
-      </div>
-      {% if target_changed_at %}
-        <div class="card-sub">ultima schimbare: <span class="mono">{{ target_changed_at | dt_ro }}</span></div>
-      {% endif %}
-    </div>
-    <div class="card-body">
-      <form method="post" action="/target" class="row" style="align-items: flex-end;">
-        <div class="form-group" style="flex:1; max-width: 480px;">
-          <label class="form-label" for="url">URL țintă</label>
-          <input type="text" name="url" id="url" value="{{ base_url }}" class="form-input">
-          <div class="form-help">Salvare atomică în <span class="mono">data/_target.json</span> · validare URL · watcher se re-țintește live.</div>
-        </div>
-        <div class="form-group">
-          <label class="form-label" style="visibility:hidden">.</label>
-          <button type="submit" class="btn btn-primary">Salvează</button>
-        </div>
-        <div class="form-group">
-          <label class="form-label" style="visibility:hidden">.</label>
-          <button type="submit" name="run_after" value="yes" class="btn">Salvează și rulează scan</button>
-        </div>
-      </form>
+  <div class="stack">
 
-      {% if recent_targets %}
-        <hr class="divider">
-        <div class="form-label">Ținte recente</div>
-        <div class="row" style="margin-top: 6px;">
+    {# target #}
+    <div class="card">
+      <div class="card-head">
+        <div><div class="card-title">Țintă principală pentru scan</div><div class="card-sub">URL-ul pe care rulează scan-ul complet</div></div>
+        {% if target_changed_at %}<div class="card-sub">ultima schimbare: <span class="mono">{{ target_changed_at | dt_ro }}</span></div>{% endif %}
+      </div>
+      <div class="card-body">
+        <form method="post" action="/target" class="row" style="gap:10px;align-items:flex-end">
+          <div class="field" style="flex:1;min-width:280px;max-width:480px">
+            <label class="field-label" for="url">URL țintă</label>
+            <input class="input" type="text" name="url" id="url" value="{{ base_url }}">
+            <div class="field-help">Salvare atomică + validare anti-SSRF · watcher-ul se re-țintește live.</div>
+          </div>
+          <button class="btn btn-primary" type="submit">Salvează</button>
+          <button class="btn" type="submit" name="run_after" value="yes">Salvează &amp; scanează</button>
+        </form>
+        {% if recent_targets %}
+        <hr class="divider" style="margin:16px 0">
+        <div class="field-label" style="margin-bottom:8px">Ținte recente</div>
+        <div class="row" style="gap:6px">
           {% for t in recent_targets %}
-            <form method="post" action="/target" style="margin:0">
-              <input type="hidden" name="url" value="{{ t }}">
-              <button type="submit" class="chip {% if t == base_url %}chip-on{% endif %}">{{ t }}</button>
-            </form>
+          <form method="post" action="/target" style="margin:0"><input type="hidden" name="url" value="{{ t }}"><button class="chip {{ 'on' if t == base_url }}" type="submit">{{ t }}</button></form>
           {% endfor %}
         </div>
-      {% endif %}
-    </div>
-  </div>
-
-  {# ---------------------------- ALERT CONFIG ---------------------------- #}
-  <div class="card" style="margin-bottom: 16px;">
-    <div class="card-header">
-      <div>
-        <div class="card-title">Alerte pe incidente</div>
-        <div class="card-sub">Citite la pornirea procesului din variabilele de mediu. Restart pentru modificări.</div>
+        {% endif %}
       </div>
     </div>
-    <div class="card-body">
-      <dl class="kvlist">
-        <dt>Severități urmărite</dt>
-        <dd class="mono">{{ alert_severities|join(', ') }}
-          <span class="muted">· setează cu <code>BT_MONITOR_ALERT_SEVERITIES</code></span>
-        </dd>
-        <dt>Alert pe resolved</dt>
-        <dd class="mono">{{ 'da' if alert_on_resolve else 'nu' }}
-          <span class="muted">· setează cu <code>BT_MONITOR_ALERT_ON_RESOLVE</code></span>
-        </dd>
-        <dt>Teams webhook</dt>
-        <dd>
-          {% if teams_configured %}
-            <span class="pill pill-ok"><span class="pill-dot"></span>configurat</span>
-          {% else %}
-            <span class="pill pill-muted"><span class="pill-dot"></span>nu — setează <code>BT_MONITOR_TEAMS_WEBHOOK</code></span>
-          {% endif %}
-        </dd>
-        <dt>Dashboard URL (pt. link-uri)</dt>
-        <dd class="mono">{{ dashboard_url or '—' }}
-          <span class="muted">· setează cu <code>BT_MONITOR_DASHBOARD_URL</code></span>
-        </dd>
-      </dl>
-    </div>
-  </div>
 
-  {# ---------------------------- SCHEDULER ---------------------------- #}
-  <div class="card" style="margin-bottom: 16px;">
-    <div class="card-header">
-      <div>
-        <div class="card-title">Scheduler scan complet</div>
-        <div class="card-sub">Rulează automat în background-ul dashboard-ului. Configurabil prin env, restart pentru modificări.</div>
+    {# alerts #}
+    <div class="card">
+      <div class="card-head"><div><div class="card-title">Alerte pe incidente</div><div class="card-sub">citite din env la pornire · restart pentru modificări</div></div></div>
+      <div class="card-body">
+        <dl class="kv">
+          <dt>Severități urmărite</dt><dd class="mono">{{ alert_severities|join(', ') }} <span class="muted">· <code>BT_MONITOR_ALERT_SEVERITIES</code></span></dd>
+          <dt>Alert pe resolved</dt><dd class="mono">{{ 'da' if alert_on_resolve else 'nu' }} <span class="muted">· <code>BT_MONITOR_ALERT_ON_RESOLVE</code></span></dd>
+          <dt>Teams webhook</dt><dd>{% if teams_configured %}<span class="badge badge-green"><span class="dot"></span>configurat</span>{% else %}<span class="badge badge-slate"><span class="dot"></span>nu · <code>BT_MONITOR_TEAMS_WEBHOOK</code></span>{% endif %}</dd>
+          <dt>Dashboard URL (link-uri)</dt><dd class="mono">{{ dashboard_url or '—' }} <span class="muted">· <code>BT_MONITOR_DASHBOARD_URL</code></span></dd>
+        </dl>
       </div>
     </div>
-    <div class="card-body">
-      <dl class="kvlist">
-        <dt>Cadență scan</dt>
-        <dd>
-          {% if scan_interval_h > 0 %}
-            <span class="pill pill-ok"><span class="pill-dot"></span>la fiecare <strong>{{ scan_interval_h }}h</strong></span>
-          {% else %}
-            <span class="pill pill-muted"><span class="pill-dot"></span>dezactivat (numai manual)</span>
-          {% endif %}
-          <span class="muted">· setează cu <code>BT_MONITOR_SCAN_INTERVAL_H</code> (0 = dezactivat)</span>
-        </dd>
-        <dt>Retenție uptime probes</dt>
-        <dd>
-          <strong>{{ uptime_retention_days }} zile</strong>
-          <span class="muted">· setează cu <code>BT_MONITOR_UPTIME_RETENTION_DAYS</code></span>
-        </dd>
-      </dl>
-    </div>
-  </div>
 
-  {# ---------------------------- PAGES WATCHER ---------------------------- #}
-  <div class="card" style="margin-bottom: 16px;">
-    <div class="card-header">
-      <div>
-        <div class="card-title">Watcher pagini din sitemap</div>
-        <div class="card-sub">Verifică TOATE paginile descoperite de ultimul scan, la cadență relaxată (politicos cu site-ul).</div>
+    {# scheduler + pages watcher #}
+    <div class="grid cols-2">
+      <div class="card">
+        <div class="card-head"><div><div class="card-title">Scheduler scan complet</div><div class="card-sub">rulează în background</div></div></div>
+        <div class="card-body">
+          <dl class="kv">
+            <dt>Cadență</dt><dd>{% if scan_interval_h > 0 %}<span class="badge badge-green"><span class="dot"></span>la {{ scan_interval_h }}h</span>{% else %}<span class="badge badge-slate"><span class="dot"></span>doar manual</span>{% endif %} <span class="muted">· <code>BT_MONITOR_SCAN_INTERVAL_H</code></span></dd>
+            <dt>Retenție uptime</dt><dd><strong>{{ uptime_retention_days }} zile</strong> <span class="muted">· <code>…RETENTION_DAYS</code></span></dd>
+          </dl>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-head"><div><div class="card-title">Watcher pagini sitemap</div><div class="card-sub">verifică toate paginile din ultimul scan</div></div></div>
+        <div class="card-body">
+          <dl class="kv">
+            <dt>Cadență per pagină</dt><dd><strong>{{ pages_interval_s }}s</strong> <span class="muted">· <code>BT_MONITOR_PAGES_INTERVAL_S</code></span></dd>
+            <dt>Pagini monitorizate</dt><dd><strong>{{ pages_watcher_count }}</strong>{% if pages_watcher_summary %} <span class="muted">·{% for st, cnt in pages_watcher_summary.items() %} {{ cnt }} {{ st }}{% if not loop.last %},{% endif %}{% endfor %}</span>{% endif %}</dd>
+            <dt>Categorii generate</dt><dd><span class="tag">page_down</span> <span class="tag">page_slow</span></dd>
+          </dl>
+        </div>
       </div>
     </div>
-    <div class="card-body">
-      <dl class="kvlist">
-        <dt>Cadență per pagină</dt>
-        <dd><strong>la fiecare {{ pages_interval_s }} secunde</strong>
-          <span class="muted">· setează cu <code>BT_MONITOR_PAGES_INTERVAL_S</code></span>
-        </dd>
-        <dt>Pagini monitorizate acum</dt>
-        <dd>
-          <strong>{{ pages_watcher_count }} pagini</strong>
-          {% if pages_watcher_summary %}
-            <span class="muted">· stări:
-              {% for state, cnt in pages_watcher_summary.items() %}
-                <strong>{{ cnt }}</strong> {{ state }}{% if not loop.last %}, {% endif %}
-              {% endfor %}
-            </span>
-          {% endif %}
-        </dd>
-        <dt>Sursa listei</dt>
-        <dd class="mono">data/sitemap_pages.json
-          <span class="muted">· se re-citește la fiecare tick — pagini noi din scan-uri viitoare apar automat</span>
-        </dd>
-        <dt>Categorii incidente generate</dt>
-        <dd>
-          <span class="tag">page_down</span> (serious) când o pagină nu răspunde ·
-          <span class="tag">page_slow</span> (moderate) când răspunde &gt; 3s
-        </dd>
-      </dl>
-    </div>
-  </div>
 
-  {# ---------------------------- DB STATUS ---------------------------- #)
-  #}
-  <div class="card" style="margin-bottom: 16px;">
-    <div class="card-header">
-      <div>
-        <div class="card-title">Bază de date</div>
-        <div class="card-sub">SQLite local sau Postgres prin <code>BT_MONITOR_DB_URL</code></div>
+    {# db #}
+    <div class="card">
+      <div class="card-head"><div><div class="card-title">Bază de date</div><div class="card-sub">SQLite (dev) sau Postgres (prod) prin <code>BT_MONITOR_DB_URL</code></div></div></div>
+      <div class="card-body">
+        <dl class="kv">
+          <dt>Backend</dt><dd class="mono">{{ db_url }}</dd>
+          <dt>Scan-uri stocate</dt><dd class="cell-strong">{{ db_stats.runs }}</dd>
+          <dt>Incidente stocate</dt><dd class="cell-strong">{{ db_stats.incidents }} <span class="muted">({{ db_stats.open }} deschise)</span></dd>
+          <dt>Observații</dt><dd class="cell-strong">{{ db_stats.observations }}</dd>
+          <dt>Categorii distincte</dt><dd class="mono">{{ db_stats.categories|join(', ') if db_stats.categories else '—' }}</dd>
+        </dl>
       </div>
     </div>
-    <div class="card-body">
-      <dl class="kvlist">
-        <dt>URL backend</dt>
-        <dd class="mono">{{ db_url }}</dd>
-        <dt>Total scan-uri stocate</dt>
-        <dd><strong>{{ db_stats.runs }}</strong></dd>
-        <dt>Total incidente stocate</dt>
-        <dd><strong>{{ db_stats.incidents }}</strong> ({{ db_stats.open }} deschise)</dd>
-        <dt>Total observații</dt>
-        <dd><strong>{{ db_stats.observations }}</strong></dd>
-        <dt>Categorii distincte</dt>
-        <dd class="mono">{{ db_stats.categories|join(', ') if db_stats.categories else '—' }}</dd>
-      </dl>
-    </div>
-  </div>
 
-  {# ---------------------------- DANGER ZONE ---------------------------- #}
-  <div class="card">
-    <div class="card-header">
-      <div>
-        <div class="card-title">Resetează rapoarte JSON</div>
-        <div class="card-sub">Șterge fișierele JSON din <code>data/</code> (NU șterge DB-ul cu istoric).</div>
+    {# danger #}
+    <div class="card">
+      <div class="card-head"><div><div class="card-title">Resetează rapoarte JSON</div><div class="card-sub">șterge JSON-urile scan-ului curent · DB-ul cu istoric rămâne intact</div></div></div>
+      <div class="card-body">
+        <form method="post" action="/clear" onsubmit="return confirm('Sigur ștergi JSON-urile scan-ului curent? (DB-ul rămâne intact)')">
+          <button class="btn btn-danger" type="submit">{{ icon('trash', 14) }} Șterge JSON-urile</button>
+        </form>
       </div>
     </div>
-    <div class="card-body">
-      <form method="post" action="/clear" onsubmit="return confirm('Sigur ștergi toate JSON-urile scan-ului curent? (DB-ul cu istoric rămâne intact)')">
-        <button type="submit" class="btn btn-critical">Șterge JSON-urile</button>
-      </form>
-    </div>
-  </div>
 
+  </div>
 {% endblock %}

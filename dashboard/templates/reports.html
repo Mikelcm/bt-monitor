@@ -1,88 +1,55 @@
 {% extends "_base.html" %}
 {% from '_icons.html' import icon %}
-{% block title %}Rapoarte / Export — BT Monitor{% endblock %}
-{% block page_title %}Rapoarte și Export{% endblock %}
-{% block page_subtitle %}
-  <div class="page-subtitle">Descarcă datele din monitor pentru audit, raportare DORA sau analiză offline.</div>
-{% endblock %}
+{% block title %}Rapoarte &amp; Export — BT Monitor{% endblock %}
+{% block page_title %}Rapoarte &amp; Export{% endblock %}
+{% block page_sub %}<div class="page-sub">Descarcă datele pentru audit, raportare DORA sau analiză offline. Ora României, format ASCII.</div>{% endblock %}
 
 {% block content %}
 
-  <div class="card" style="margin-bottom: 16px;">
-    <div class="card-header">
-      <div>
-        <div class="card-title">Țintă pentru export</div>
-        <div class="card-sub">Toate fișierele de mai jos vor conține doar datele pentru această țintă.</div>
-      </div>
-    </div>
+  <div class="card" style="margin-bottom:16px">
+    <div class="card-head"><div><div class="card-title">Țintă pentru export</div><div class="card-sub">filtrează descărcările de mai jos pe o singură țintă</div></div></div>
     <div class="card-body">
-      <form method="get" class="row" id="targetForm">
-        <div class="form-group" style="flex:1; max-width: 480px;">
-          <label class="form-label" for="target_url">URL țintă</label>
-          <select class="form-select" name="target_url" id="target_url" onchange="document.getElementById('targetForm').submit()">
+      <form method="get" id="tform">
+        <div class="field" style="max-width:480px">
+          <label class="field-label" for="target_url">URL țintă</label>
+          <select class="select" name="target_url" id="target_url" onchange="document.getElementById('tform').submit()">
             <option value="">— toate țintele —</option>
-            {% for t in target_options %}
-              <option value="{{ t }}" {% if t == selected_target %}selected{% endif %}>{{ t }}</option>
-            {% endfor %}
+            {% for t in target_options %}<option value="{{ t }}" {{ 'selected' if t == selected_target }}>{{ t }}</option>{% endfor %}
           </select>
-          <div class="form-help">Schimbarea aplică imediat filtrul pe descărcările de mai jos.</div>
         </div>
       </form>
     </div>
   </div>
 
   <div class="export-grid">
-
     <div class="export-card">
       <div class="export-ico">CSV</div>
       <div class="export-title">Incidente — CSV</div>
-      <div class="export-desc">Listă plată cu toate incidentele (deschise + rezolvate), cu fingerprint, page URL și timeline. Bun pentru import în Excel / Google Sheets sau analize SQL ulterioare.</div>
-      <div class="row" style="margin-top: auto;">
-        <a class="btn btn-primary" href="/export/incidents.csv?status=all{% if selected_target %}&target_url={{ selected_target }}{% endif %}">
-          {{ icon('arrow-down', 14) }} Toate ({{ counts.all_incidents }})
-        </a>
-        <a class="btn" href="/export/incidents.csv?status=open{% if selected_target %}&target_url={{ selected_target }}{% endif %}">
-          Doar deschise ({{ counts.open_incidents }})
-        </a>
+      <div class="export-desc">Listă plată cu toate incidentele (deschise + rezolvate), cu fingerprint, page URL și timeline. Pentru Excel / Google Sheets / analize SQL.</div>
+      <div class="row" style="gap:8px">
+        <a class="btn btn-primary" href="/export/incidents.csv?status=all{% if selected_target %}&target_url={{ selected_target }}{% endif %}">{{ icon('arrow-down', 14) }} Toate ({{ counts.all_incidents }})</a>
+        <a class="btn" href="/export/incidents.csv?status=open{% if selected_target %}&target_url={{ selected_target }}{% endif %}">Deschise ({{ counts.open_incidents }})</a>
       </div>
     </div>
 
     <div class="export-card">
       <div class="export-ico">XLSX</div>
       <div class="export-title">Pachet complet — Excel</div>
-      <div class="export-desc">Workbook cu 3 sheet-uri: <b>Incidents</b> (cu zile-deschis calculate), <b>Runs</b> (cu summary metrics pe scan), <b>Alerts</b> (audit log). Header colorat BT-navy. Format gata de prezentat.</div>
-      <div class="row" style="margin-top: auto;">
-        <a class="btn btn-primary" href="/export/bt-monitor.xlsx{% if selected_target %}?target_url={{ selected_target }}{% endif %}">
-          {{ icon('arrow-down', 14) }} Descarcă Excel
-        </a>
-      </div>
+      <div class="export-desc">6 sheet-uri: <strong>Indisponibilitati</strong> (cădiri site/pagini), Incidents, Runs, Uptime SLA, Uptime probes, Alerts. Header colorat, gata de prezentat.</div>
+      <div class="row"><a class="btn btn-primary" href="/export/bt-monitor.xlsx{% if selected_target %}?target_url={{ selected_target }}{% endif %}">{{ icon('arrow-down', 14) }} Descarcă Excel</a></div>
     </div>
 
     <div class="export-card">
       <div class="export-ico">PDF</div>
       <div class="export-title">Raport audit — PDF</div>
-      <div class="export-desc">Sumar executiv cu health score, statistici per severitate, categorii deschise, detalii incidente critice, listă serioase, ultimele 30 scan-uri. Branding BT. Pentru a fi anexat la rapoartele de conformitate (DORA / GDPR).</div>
-      <div class="row" style="margin-top: auto;">
-        <a class="btn btn-primary" href="/export/audit.pdf{% if selected_target %}?target_url={{ selected_target }}{% endif %}">
-          {{ icon('arrow-down', 14) }} Descarcă PDF
-        </a>
-      </div>
+      <div class="export-desc">Sumar executiv cu health score, statistici per severitate, indisponibilități site &amp; pagini, incidente critice, ultimele 30 scan-uri. Pentru conformitate DORA / GDPR.</div>
+      <div class="row"><a class="btn btn-primary" href="/export/audit.pdf{% if selected_target %}?target_url={{ selected_target }}{% endif %}">{{ icon('arrow-down', 14) }} Descarcă PDF</a></div>
     </div>
-
   </div>
 
-  <div class="card" style="margin-top: 18px;">
-    <div class="card-header">
-      <div>
-        <div class="card-title">Resurse adiționale</div>
-        <div class="card-sub">Date raw pentru inspecție.</div>
-      </div>
-    </div>
-    <div class="card-body">
-      <div class="row">
-        <a class="btn btn-ghost" href="/api/reports">JSON brut (toate rapoartele scan-ului)</a>
-      </div>
-    </div>
+  <div class="card section-gap">
+    <div class="card-head"><div><div class="card-title">Resurse adiționale</div><div class="card-sub">date brute pentru inspecție</div></div></div>
+    <div class="card-body"><a class="btn btn-ghost" href="/api/reports">{{ icon('page', 14) }} JSON brut (toate rapoartele scan-ului)</a></div>
   </div>
 
 {% endblock %}
