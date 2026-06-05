@@ -164,6 +164,28 @@ class Alert(Base):
     payload: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
 
 
+class User(Base):
+    """Dashboard user account. Password is PBKDF2-HMAC-SHA256 (salt + hash).
+
+    Role is 'admin' (full control incl. user management) or 'viewer' (read-only).
+    The first admin is bootstrapped from BT_MONITOR_AUTH_USER/PASS on startup.
+    """
+    __tablename__ = "users"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    username: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    password_hash: Mapped[str] = mapped_column(String(128))
+    password_salt: Mapped[str] = mapped_column(String(64))
+    role: Mapped[str] = mapped_column(String(16), default="viewer")   # admin | viewer
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+    last_login_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    @property
+    def is_admin(self) -> bool:
+        return self.role == "admin"
+
+
 class IncidentObservation(Base):
     __tablename__ = "incident_observations"
     __table_args__ = (

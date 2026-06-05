@@ -51,7 +51,8 @@
       </div>
     </div>
 
-    {# target #}
+    {# target (admin only) #}
+    {% if not auth_enabled or request.session.get('role') != 'viewer' %}
     <div class="card">
       <div class="card-head">
         <div><div class="card-title">Țintă principală pentru scan</div><div class="card-sub">URL-ul pe care rulează scan-ul complet</div></div>
@@ -78,6 +79,7 @@
         {% endif %}
       </div>
     </div>
+    {% endif %}
 
     {# alerts #}
     <div class="card">
@@ -162,7 +164,8 @@
       </div>
     </div>
 
-    {# danger #}
+    {# danger (admin only) #}
+    {% if not auth_enabled or request.session.get('role') != 'viewer' %}
     <div class="card">
       <div class="card-head"><div><div class="card-title">Resetează rapoarte JSON</div><div class="card-sub">șterge JSON-urile scan-ului curent · DB-ul cu istoric rămâne intact</div></div></div>
       <div class="card-body">
@@ -171,6 +174,7 @@
         </form>
       </div>
     </div>
+    {% endif %}
 
   </div>
 {% endblock %}

@@ -166,7 +166,8 @@ code, .mono { font-family: var(--mono); font-size: .88em; }
 .sb-foot-value { margin-top: 4px; font-size: 11.5px; color: var(--slate-400); font-family: var(--mono); word-break: break-all; }
 .sb-user { display: flex; align-items: center; gap: 9px; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--sb-border); }
 .sb-user-av { width: 26px; height: 26px; border-radius: 50%; background: var(--accent); color: #fff; display: grid; place-items: center; font-size: 12px; font-weight: 700; flex-shrink: 0; }
-.sb-user-name { flex: 1; font-size: 12.5px; font-weight: 550; color: var(--slate-300); min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.sb-user-name { flex: 1; font-size: 12.5px; font-weight: 550; color: var(--slate-300); min-width: 0; overflow: hidden; text-overflow: ellipsis; display: flex; flex-direction: column; line-height: 1.3; }
+.sb-user-role { font-size: 10px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase; color: var(--slate-500); }
 .sb-user-out { color: var(--slate-500); display: grid; place-items: center; padding: 4px; border-radius: var(--r-sm); }
 .sb-user-out:hover { color: #fff; background: var(--sb-bg-hover); }
 
@@ -395,6 +396,22 @@ code, .mono { font-family: var(--mono); font-size: .88em; }
 .sevcard-note { font-size: 11px; color: var(--muted-2); margin-top: 1px; }
 
 /* ============================================================================
+   Checks breakdown grid (overview)
+   ============================================================================ */
+.checks-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px,1fr)); gap: 10px; }
+.check-tile { display: flex; align-items: center; gap: 11px; padding: 11px 13px; border: 1px solid var(--border); border-radius: var(--r); background: var(--surface); }
+.check-tile.is-clear { background: var(--surface-2); }
+.check-ico { width: 28px; height: 28px; border-radius: 7px; display: grid; place-items: center; flex-shrink: 0; }
+.check-ico.ok { background: var(--green-soft); color: var(--green-text); }
+.check-ico.crit { background: var(--red-soft); color: var(--red-text); }
+.check-ico.bad { background: var(--amber-soft); color: var(--amber-text); }
+.check-ico.minor { background: var(--slate-100); color: var(--slate-500); }
+.check-name { font-size: 12.5px; font-weight: 600; }
+.check-count { font-size: 11.5px; color: var(--muted); margin-top: 1px; }
+.check-count.bad { color: var(--amber-text); font-weight: 600; }
+.check-count.crit { color: var(--red-text); font-weight: 700; }
+
+/* ============================================================================
    Sparkline
    ============================================================================ */
 .spark { width: 100%; height: 56px; display: block; }
@@ -474,6 +491,21 @@ code, .mono { font-family: var(--mono); font-size: .88em; }
 .export-ico { width: 44px; height: 44px; border-radius: 11px; background: var(--accent-soft); color: var(--accent-text); display: grid; place-items: center; font-family: var(--mono); font-weight: 600; font-size: 12px; }
 .export-title { font-size: 15px; font-weight: 650; }
 .export-desc { font-size: 12.5px; color: var(--muted); line-height: 1.5; flex: 1; }
+
+/* ============================================================================
+   Row action menu (accounts) — details/summary popover
+   ============================================================================ */
+.rowmenu { position: relative; }
+.rowmenu > summary { list-style: none; cursor: pointer; }
+.rowmenu > summary::-webkit-details-marker { display: none; }
+.rowmenu-pop {
+  position: absolute; right: 0; top: calc(100% + 4px); z-index: 40;
+  width: 260px; background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--r); box-shadow: var(--sh-lg); padding: 12px;
+  display: flex; flex-direction: column; gap: 8px;
+}
+.rowmenu-form { display: flex; flex-direction: column; gap: 7px; }
+.rowmenu-pop .divider { margin: 2px 0; }
 
 /* ============================================================================
    Security posture grid (settings)

@@ -44,7 +44,7 @@
             <td class="num mono">{{ e.last_status or '—' }}</td>
             <td class="num mono">{{ e.last_response_ms or '—' }} ms</td>
             <td class="num mono">{{ e.sla_24h if e.sla_24h is not none else '—' }}{{ '%' if e.sla_24h is not none }}</td>
-            <td><form method="post" action="/live/remove" style="margin:0"><input type="hidden" name="url" value="{{ e.target }}"><button class="btn btn-ghost btn-sm" type="submit">{{ icon('trash', 13) }}</button></form></td>
+            <td>{% if not auth_enabled or request.session.get('role') != 'viewer' %}<form method="post" action="/live/remove" style="margin:0"><input type="hidden" name="url" value="{{ e.target }}"><button class="btn btn-ghost btn-sm" type="submit">{{ icon('trash', 13) }}</button></form>{% endif %}</td>
           </tr>
           {% endfor %}
         </tbody>
@@ -53,7 +53,8 @@
   </div>
   {% endif %}
 
-  {# add critical page #}
+  {# add critical page (admin only) #}
+  {% if not auth_enabled or request.session.get('role') != 'viewer' %}
   <div class="card" style="margin-bottom:16px">
     <div class="card-head"><div><div class="card-title">Adaugă pagină critică</div><div class="card-sub">Orice URL (domeniu sau pagină internă), probat în paralel la ~30s</div></div></div>
     <div class="card-body">
@@ -66,6 +67,7 @@
       <div class="field-help" style="margin-top:8px">Exemple pentru o bancă: homepage, login, „transfer rapid", „contul meu", „contact". Fiecare are propriul SLA + incidente automate la cădere.</div>
     </div>
   </div>
+  {% endif %}
 
   {# uptime alerts #}
   <div class="card">

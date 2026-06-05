@@ -237,11 +237,17 @@ $env:BT_MONITOR_BASE_URL = "http://127.0.0.1:8765"
 ## Pending / recommended work (TODO when user asks)
 
 ### Tier 1 (must-have for selling to BT)
-1. **Auth + RBAC** — login form, bcrypt passwords, sessions, 3 roles
-   (admin/auditor/viewer). User has NOT picked this yet; was a recommendation.
+1. ~~**Auth + RBAC**~~ **DONE (2026-06-05):** session login (`/login`,`/logout`)
+   + DB-backed users (`User` model, PBKDF2 passwords, `dashboard/accounts.py`).
+   Two roles: **admin** (full) / **viewer** (read-only — backend 403 + UI hides
+   mutating controls). First admin bootstrapped from `BT_MONITOR_AUTH_USER/PASS`.
+   Admin manages users at `/accounts` (create/role/activate/reset-pw/delete,
+   protects last admin). HTTP Basic still works for automation (= admin).
+   **Login = the env creds on first run; then create more from the Conturi tab.**
 2. **Audit log** — track who changed target/alerts/settings. Auditor requirement.
 3. **Deployment artifacts** — Dockerfile + docker-compose, healthcheck, reverse
-   proxy config (Caddy/nginx). BT will deploy on their VM.
+   proxy config (Caddy/nginx). BT will deploy on their VM. (Dockerfile + compose
+   already exist; reverse-proxy config is the remaining piece.)
 
 ### Tier 1.5 (high value)
 4. **Email digest weekly** with PDF audit attached. SMTP integration, scheduler

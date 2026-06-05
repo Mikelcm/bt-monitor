@@ -177,6 +177,12 @@ async def _scheduler_loop():
 async def lifespan(app: FastAPI):
     global _watcher_task, _pages_task, _scheduler_task
     init_db()
+    # Seed the first admin from env (idempotent) so a fresh install has a way in.
+    try:
+        from dashboard import accounts as _accounts
+        _accounts.bootstrap_admin()
+    except Exception as _exc:
+        logging.getLogger("dashboard").warning("admin bootstrap skipped: %r", _exc)
     _watcher.set_targets(all_watched_targets())
     _watcher_task = asyncio.create_task(_watcher.run_forever())
     _pages_task = asyncio.create_task(_pages_watcher.run_forever())
@@ -254,28 +260,42 @@ def _basic_ok(request) -> bool:
         return False
 
 
+_MUTATING_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
+
+
 @app.middleware("http")
 async def _auth_gate(request, call_next):
     path = request.url.path
     if not _AUTH_ENABLED or path.startswith(_AUTH_EXEMPT):
         return await call_next(request)
+    role = None
+    authed = False
     # 1) signed session cookie (the human login flow)
     try:
         if request.session.get("user"):
-            return await call_next(request)
+            authed = True
+            role = request.session.get("role") or "viewer"
     except Exception:
         pass
-    # 2) HTTP Basic header (automation / API clients)
-    hdr = request.headers.get("Authorization", "")
-    if hdr.startswith("Basic "):
-        if _basic_ok(request):
-            return await call_next(request)
-        return _Response("Unauthorized", status_code=401,
-                         headers={"WWW-Authenticate": 'Basic realm="BT Monitor"'})
+    # 2) HTTP Basic header (automation / API clients = admin-equivalent)
+    if not authed:
+        hdr = request.headers.get("Authorization", "")
+        if hdr.startswith("Basic "):
+            if _basic_ok(request):
+                authed = True
+                role = "admin"
+            else:
+                return _Response("Unauthorized", status_code=401,
+                                 headers={"WWW-Authenticate": 'Basic realm="BT Monitor"'})
     # 3) unauthenticated: APIs/exports get 401, browser pages go to the login form
-    if path.startswith(("/api", "/export")):
-        return _Response("Unauthorized", status_code=401)
-    return RedirectResponse(f"/login?next={_quote(path)}", status_code=303)
+    if not authed:
+        if path.startswith(("/api", "/export")):
+            return _Response("Unauthorized", status_code=401)
+        return RedirectResponse(f"/login?next={_quote(path)}", status_code=303)
+    # 4) role enforcement: viewers are read-only (no state-changing requests)
+    if role == "viewer" and request.method in _MUTATING_METHODS:
+        return _Response("Acțiune permisă doar administratorilor.", status_code=403)
+    return await call_next(request)
 
 
 # ---------------------------------------------------------------------
@@ -352,14 +372,15 @@ async def login_submit(
     password: str = Form(...),
     next: str = Form("/"),
 ):
-    if (_AUTH_ENABLED
-            and _secrets.compare_digest(username, _AUTH_USER or "")
-            and _secrets.compare_digest(password, _AUTH_PASS or "")):
-        request.session["user"] = username
+    from dashboard import accounts as _accounts
+    user = _accounts.authenticate(username, password) if _AUTH_ENABLED else None
+    if user:
+        request.session["user"] = user.username
+        request.session["role"] = user.role
         return RedirectResponse(_safe_next(next), status_code=303)
     return templates.TemplateResponse(
         request=request, name="login.html",
-        context={"next": _safe_next(next), "error": "Utilizator sau parolă incorecte."},
+        context={"next": _safe_next(next), "error": "Utilizator sau parolă incorecte, ori cont dezactivat."},
         status_code=401,
     )
 
@@ -1054,6 +1075,96 @@ async def settings_page(request: Request, changed: int = 0, error: str | None = 
             "global_status": _global_status(base_url),
         },
     )
+
+
+# ---------------------------------------------------------------------
+# Accounts (user management) — admin only
+# ---------------------------------------------------------------------
+def _is_admin(request: Request) -> bool:
+    if not _AUTH_ENABLED:
+        return True   # dev mode: no auth → full access
+    try:
+        if request.session.get("role") == "admin":
+            return True
+    except Exception:
+        pass
+    # HTTP Basic automation is admin-equivalent
+    if request.headers.get("Authorization", "").startswith("Basic ") and _basic_ok(request):
+        return True
+    return False
+
+
+def _current_user(request: Request) -> str | None:
+    try:
+        return request.session.get("user")
+    except Exception:
+        return None
+
+
+@app.get("/accounts", response_class=HTMLResponse)
+async def accounts_page(request: Request, ok: str | None = None, err: str | None = None):
+    if not _is_admin(request):
+        return _Response("Acces permis doar administratorilor.", status_code=403)
+    from dashboard import accounts as _accounts
+    base_url = get_base_url()
+    return templates.TemplateResponse(
+        request=request, name="accounts.html",
+        context={
+            "active": "accounts",
+            "base_url": base_url,
+            "users": _accounts.list_users(),
+            "auth_enabled": _AUTH_ENABLED,
+            "current_user": _current_user(request),
+            "ok": ok, "err": err,
+            "nav_open_count": _open_count_for(base_url),
+            "global_status": _global_status(base_url),
+        },
+    )
+
+
+@app.post("/accounts/create")
+async def accounts_create(request: Request, username: str = Form(...), password: str = Form(...), role: str = Form("viewer")):
+    if not _is_admin(request):
+        return _Response("Forbidden", status_code=403)
+    from dashboard import accounts as _accounts
+    ok, msg = _accounts.create_user(username, password, role)
+    return RedirectResponse(f"/accounts?{'ok' if ok else 'err'}={_quote(msg)}", status_code=303)
+
+
+@app.post("/accounts/{user_id}/password")
+async def accounts_password(request: Request, user_id: int, password: str = Form(...)):
+    if not _is_admin(request):
+        return _Response("Forbidden", status_code=403)
+    from dashboard import accounts as _accounts
+    ok, msg = _accounts.set_password(user_id, password)
+    return RedirectResponse(f"/accounts?{'ok' if ok else 'err'}={_quote(msg)}", status_code=303)
+
+
+@app.post("/accounts/{user_id}/role")
+async def accounts_role(request: Request, user_id: int, role: str = Form(...)):
+    if not _is_admin(request):
+        return _Response("Forbidden", status_code=403)
+    from dashboard import accounts as _accounts
+    ok, msg = _accounts.set_role(user_id, role, _current_user(request))
+    return RedirectResponse(f"/accounts?{'ok' if ok else 'err'}={_quote(msg)}", status_code=303)
+
+
+@app.post("/accounts/{user_id}/toggle")
+async def accounts_toggle(request: Request, user_id: int, active: str = Form(...)):
+    if not _is_admin(request):
+        return _Response("Forbidden", status_code=403)
+    from dashboard import accounts as _accounts
+    ok, msg = _accounts.set_active(user_id, active == "1", _current_user(request))
+    return RedirectResponse(f"/accounts?{'ok' if ok else 'err'}={_quote(msg)}", status_code=303)
+
+
+@app.post("/accounts/{user_id}/delete")
+async def accounts_delete(request: Request, user_id: int):
+    if not _is_admin(request):
+        return _Response("Forbidden", status_code=403)
+    from dashboard import accounts as _accounts
+    ok, msg = _accounts.delete_user(user_id, _current_user(request))
+    return RedirectResponse(f"/accounts?{'ok' if ok else 'err'}={_quote(msg)}", status_code=303)
 
 
 # ---------------------------------------------------------------------

@@ -4,7 +4,7 @@
 {% block page_title %}Privire generală{% endblock %}
 {% block page_sub %}<div class="page-sub">Stare site, ultimul scan și incidentele prioritare pentru {{ base_url }}.</div>{% endblock %}
 {% block page_actions %}
-  {% if not scan_running %}
+  {% if not scan_running and (not auth_enabled or request.session.get('role') != 'viewer') %}
   <form method="post" action="/run" style="margin:0">
     <button type="submit" class="btn btn-primary">{{ icon('play', 14) }} Rulează scan complet</button>
   </form>
@@ -128,6 +128,40 @@
       </div>
     </div>
   </div>
+
+  {# ---------- Checks breakdown (what the deep scan verifies) ---------- #}
+  {% if has_data %}
+  {% set checks = [
+    ('link-off', 'Link-uri rupte', summary.broken_links or 0, 'bad'),
+    ('slow', 'Pagini lente', summary.slow_pages or 0, 'bad'),
+    ('page', 'Asset-uri lipsă', summary.asset_failures or 0, 'bad'),
+    ('form', 'Probleme formulare', summary.form_issues or 0, 'bad'),
+    ('shield', 'Scurgeri documente', summary.doc_leaks or 0, 'crit'),
+    ('eye', 'Accesibilitate (WCAG)', (summary.a11y_critical or 0) + (summary.a11y_serious or 0), 'bad'),
+    ('search', 'SEO', summary.seo_issues or 0, 'minor'),
+    ('alert', 'Erori JS', summary.console_js_errors or 0, 'bad'),
+    ('globe', 'Cereri eșuate', summary.console_failed_requests or 0, 'minor'),
+  ] %}
+  <div class="card" style="margin-bottom:16px">
+    <div class="card-head">
+      <div><div class="card-title">Verificări efectuate</div><div class="card-sub">ce a analizat ultimul scan complet pe {{ summary.pages or 0 }} pagini</div></div>
+      <a href="/incidents" class="btn btn-ghost btn-sm">Vezi incidentele {{ icon('chevron-right', 14) }}</a>
+    </div>
+    <div class="card-body">
+      <div class="checks-grid">
+        {% for ico, name, count, kind in checks %}
+        <div class="check-tile {{ 'is-clear' if count == 0 }}">
+          <span class="check-ico {{ 'ok' if count == 0 else (kind) }}">{{ icon('check' if count == 0 else ico, 15) }}</span>
+          <div class="check-body">
+            <div class="check-name">{{ name }}</div>
+            <div class="check-count {{ '' if count == 0 else ('crit' if kind == 'crit' else 'bad') }}">{{ count }} {{ 'ok' if count == 0 else ('probleme' if count != 1 else 'problemă') }}</div>
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+  {% endif %}
 
   {# ---------- Top incidents + Activity ---------- #}
   <div class="grid grid-2to1" style="gap:16px">

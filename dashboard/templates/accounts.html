@@ -1,0 +1,103 @@
+{% extends "_base.html" %}
+{% from '_icons.html' import icon %}
+{% block title %}Conturi — BT Monitor{% endblock %}
+{% block page_title %}Conturi utilizatori{% endblock %}
+{% block page_sub %}<div class="page-sub">Gestionează cine are acces la panou. <strong>Admin</strong> = control total; <strong>Viewer</strong> = doar vizualizare (nu poate rula scan-uri, schimba ținta sau modifica setări).</div>{% endblock %}
+
+{% block content %}
+
+  {% if ok %}<div class="banner ok"><div class="banner-ico">{{ icon('check', 18) }}</div><div class="banner-body"><div class="banner-title">{{ ok }}</div></div></div>{% endif %}
+  {% if err %}<div class="banner"><div class="banner-ico">{{ icon('x', 18) }}</div><div class="banner-body"><div class="banner-title">{{ err }}</div></div></div>{% endif %}
+
+  <div class="grid" style="grid-template-columns: 1.6fr 1fr; gap:16px; align-items:start">
+
+    {# users list #}
+    <div class="card">
+      <div class="card-head"><div><div class="card-title">{{ users|length }} utilizatori</div><div class="card-sub">conturile cu acces la dashboard</div></div></div>
+      <div class="card-body flush">
+        <table class="table">
+          <thead><tr><th>Utilizator</th><th class="col-tight">Rol</th><th class="col-tight">Stare</th><th class="col-tight">Ultima logare</th><th class="col-tight">Acțiuni</th></tr></thead>
+          <tbody>
+            {% for u in users %}
+            <tr>
+              <td>
+                <div class="row" style="gap:9px">
+                  <span class="sb-user-av" style="width:26px;height:26px">{{ u.username[0]|upper }}</span>
+                  <div>
+                    <div class="cell-strong">{{ u.username }}{% if u.username == current_user %} <span class="muted" style="font-weight:400">(tu)</span>{% endif %}</div>
+                    <div class="cell-sub">creat {{ u.created_at | dt_ro_short }}</div>
+                  </div>
+                </div>
+              </td>
+              <td>
+                {% if u.is_admin %}<span class="badge badge-blue"><span class="dot"></span>admin</span>{% else %}<span class="badge badge-slate"><span class="dot"></span>viewer</span>{% endif %}
+              </td>
+              <td>{% if u.is_active %}<span class="badge badge-green"><span class="dot"></span>activ</span>{% else %}<span class="badge badge-amber"><span class="dot"></span>dezactivat</span>{% endif %}</td>
+              <td class="mono muted nowrap">{{ u.last_login_at | dt_ro_short if u.last_login_at else '—' }}</td>
+              <td>
+                <details class="rowmenu">
+                  <summary class="btn btn-ghost btn-sm">{{ icon('settings', 13) }}</summary>
+                  <div class="rowmenu-pop">
+                    {# reset password #}
+                    <form method="post" action="/accounts/{{ u.id }}/password" class="rowmenu-form">
+                      <input class="input" type="password" name="password" placeholder="parolă nouă (min 6)" required>
+                      <button class="btn btn-sm" type="submit">Resetează parola</button>
+                    </form>
+                    <hr class="divider">
+                    {# change role #}
+                    <form method="post" action="/accounts/{{ u.id }}/role" class="rowmenu-form">
+                      <select class="select" name="role">
+                        <option value="admin" {{ 'selected' if u.is_admin }}>admin</option>
+                        <option value="viewer" {{ 'selected' if not u.is_admin }}>viewer</option>
+                      </select>
+                      <button class="btn btn-sm" type="submit">Schimbă rolul</button>
+                    </form>
+                    <hr class="divider">
+                    <div class="row" style="gap:6px">
+                      <form method="post" action="/accounts/{{ u.id }}/toggle" style="margin:0">
+                        <input type="hidden" name="active" value="{{ '0' if u.is_active else '1' }}">
+                        <button class="btn btn-sm" type="submit">{{ 'Dezactivează' if u.is_active else 'Activează' }}</button>
+                      </form>
+                      {% if u.username != current_user %}
+                      <form method="post" action="/accounts/{{ u.id }}/delete" style="margin:0" onsubmit="return confirm('Ștergi contul „{{ u.username }}”?')">
+                        <button class="btn btn-danger btn-sm" type="submit">{{ icon('trash', 13) }} Șterge</button>
+                      </form>
+                      {% endif %}
+                    </div>
+                  </div>
+                </details>
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    {# create user #}
+    <div class="card">
+      <div class="card-head"><div><div class="card-title">Adaugă utilizator</div><div class="card-sub">cont nou cu acces la panou</div></div></div>
+      <div class="card-body">
+        <form method="post" action="/accounts/create" class="stack" style="gap:14px">
+          <div class="field">
+            <label class="field-label" for="nu">Utilizator</label>
+            <input class="input" type="text" name="username" id="nu" placeholder="ex: ion.popescu" autocomplete="off" required>
+          </div>
+          <div class="field">
+            <label class="field-label" for="np">Parolă</label>
+            <input class="input" type="password" name="password" id="np" placeholder="minim 6 caractere" autocomplete="new-password" required>
+          </div>
+          <div class="field">
+            <label class="field-label" for="nr">Rol</label>
+            <select class="select" name="role" id="nr">
+              <option value="viewer">Viewer — doar vizualizare</option>
+              <option value="admin">Admin — control total</option>
+            </select>
+          </div>
+          <button class="btn btn-primary" type="submit">{{ icon('plus', 14) }} Creează cont</button>
+        </form>
+      </div>
+    </div>
+
+  </div>
+{% endblock %}
