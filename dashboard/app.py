@@ -117,7 +117,9 @@ async def _scheduler_loop():
         print("[scheduler] disabled (BT_MONITOR_SCAN_INTERVAL_H=0)", flush=True)
         return
     print(f"[scheduler] active — deep scan every {SCAN_INTERVAL_H}h", flush=True)
+    from monitoring import perf_regression as _perf
     last_prune_ts = 0.0
+    last_perf_ts = 0.0
     # Small grace period at startup so we don't immediately fire on boot.
     try:
         await asyncio.wait_for(_scheduler_stop.wait(), timeout=60)
@@ -156,8 +158,19 @@ async def _scheduler_loop():
                 else:
                     print(f"[scheduler] skip scan: {reason}", flush=True)
 
-            # Prune uptime_checks periodically.
+            # Performance-regression sweep (sub-threshold slowdowns vs 7-day baseline).
             now_ts = now.timestamp()
+            if now_ts - last_perf_ts > _perf.CHECK_INTERVAL_MIN * 60:
+                try:
+                    pstats = _perf.check_perf_regressions()
+                    if pstats["opened"] or pstats["resolved"]:
+                        print(f"[scheduler] perf regression: opened={pstats['opened']} "
+                              f"resolved={pstats['resolved']} (checked {pstats['checked']})", flush=True)
+                except Exception as exc:
+                    print(f"[scheduler] perf check error: {exc!r}", flush=True)
+                last_perf_ts = now_ts
+
+            # Prune uptime_checks periodically.
             if now_ts - last_prune_ts > PRUNE_INTERVAL_H * 3600:
                 deleted = prune_uptime_checks(days=UPTIME_RETENTION_DAYS)
                 if deleted:
@@ -952,6 +965,11 @@ async def live_page(request: Request):
             select(sa_func.count(UptimeCheck.id))
             .where(UptimeCheck.target_url == base_url.rstrip("/"))
         ) or 0
+    try:
+        from monitoring.perf_regression import perf_snapshot
+        perf = perf_snapshot(base_url)
+    except Exception:
+        perf = None
     return templates.TemplateResponse(
         request=request,
         name="live.html",
@@ -961,6 +979,7 @@ async def live_page(request: Request):
             "live": live,
             "live_extras": extras,
             "probes_count": probes_count,
+            "perf": perf,
             "nav_open_count": _open_count_for(base_url),
             "global_status": _global_status(base_url),
         },

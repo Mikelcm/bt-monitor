@@ -29,6 +29,27 @@
     </div>
   </div>
 
+  {# performance regression #}
+  {% if perf and perf.enough_data %}
+  <div class="card" style="margin-bottom:16px">
+    <div class="card-head">
+      <div><div class="card-title">Performanță · țintă principală</div><div class="card-sub">latență medie ultima oră vs baseline 7 zile (detecție regresie sub prag)</div></div>
+      {% if perf.regressed %}<span class="badge badge-amber"><span class="dot"></span>regresie {{ perf.pct }}%</span>{% else %}<span class="badge badge-green"><span class="dot"></span>stabil</span>{% endif %}
+    </div>
+    <div class="card-body">
+      <div class="row" style="gap:32px">
+        <div class="metric"><span class="metric-value tnum">{{ perf.recent_ms }} <span class="muted" style="font-size:13px">ms</span></span><span class="metric-label">Ultima oră</span></div>
+        <div class="metric"><span class="metric-value tnum">{{ perf.baseline_ms }} <span class="muted" style="font-size:13px">ms</span></span><span class="metric-label">Baseline 7 zile</span></div>
+        <div class="metric"><span class="metric-value tnum {{ 'text-warn' if perf.regressed }}">{{ '%+g'|format(perf.pct) }}%</span><span class="metric-label">Diferență</span></div>
+        <div class="metric"><span class="metric-value tnum">{{ perf.samples_recent }}/{{ perf.samples_baseline }}</span><span class="metric-label">Probe (recent/baseline)</span></div>
+      </div>
+      {% if perf.regressed %}
+      <div class="field-help" style="margin-top:12px;color:var(--amber-text)">Pagina e cu peste 50% mai lentă decât în mod normal — un incident <span class="tag">perf_regression</span> a fost deschis automat.</div>
+      {% endif %}
+    </div>
+  </div>
+  {% endif %}
+
   {# critical pages #}
   {% if live_extras %}
   <div class="card" style="margin-bottom:16px">
