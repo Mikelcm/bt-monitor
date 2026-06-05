@@ -30,3 +30,11 @@ jobs:
 
       - name: Run tests
         run: pytest -ra
+
+      - name: Verify Alembic migrations apply cleanly (fresh SQLite)
+        env:
+          BT_MONITOR_DB_URL: sqlite:///migration_check.db
+        run: |
+          alembic upgrade head
+          # Schema must be current: autogenerate should detect no changes.
+          alembic check

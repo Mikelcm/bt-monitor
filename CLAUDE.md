@@ -212,6 +212,27 @@ $env:BT_MONITOR_BASE_URL = "http://127.0.0.1:8765"
 7. **Site outage vs page outage** must remain distinct — they're tracked as
    separate categories (`site_down` vs `page_down`) with different severities.
    Auditors must see this distinction in reports.
+8. **Schema is owned by Alembic on Postgres, `create_all` on SQLite.** See below.
+
+## Database schema & migrations (Alembic)
+
+- **SQLite (dev/test default)**: `db.models.init_db()` runs `create_all`. No
+  migration tooling needed — fast local runs, the 35-test suite uses this.
+- **Postgres (production)**: `init_db()` is a **no-op**; the schema is owned by
+  **Alembic**. The Docker entrypoint (`docker-entrypoint.sh`) runs
+  `alembic upgrade head` before uvicorn starts.
+- **Migration files** live in `alembic/versions/`. The env (`alembic/env.py`)
+  resolves the DB URL from `BT_MONITOR_DB_URL` (same as the app), targets
+  `db.models.Base.metadata`, and uses `render_as_batch` for SQLite ALTERs.
+- **When you change a model**, you MUST add a migration or CI fails:
+  ```
+  alembic revision --autogenerate -m "describe change"   # creates the migration
+  alembic upgrade head                                     # apply it
+  ```
+  CI runs `alembic upgrade head` + `alembic check` (the latter fails if models
+  drift from migrations — i.e. you forgot to autogenerate).
+- **Do NOT reintroduce `create_all` for Postgres** — it would race with Alembic
+  and leave `alembic_version` inconsistent. Keep the dialect guard in `init_db()`.
 
 ## Pending / recommended work (TODO when user asks)
 

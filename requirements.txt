@@ -24,8 +24,11 @@ flask==3.1.3                # test_fixture/server.py only
 
 # --- persistence ---
 SQLAlchemy==2.0.50
-# For PostgreSQL in production, also install:  psycopg[binary]>=3.2
+alembic==1.14.0             # schema migrations (versioned, replaces create_all in prod)
+# PostgreSQL driver for production. Installed everywhere so `alembic upgrade head`
+# can target a Postgres URL; harmless when the dev default (SQLite) is used.
 # then set BT_MONITOR_DB_URL=postgresql+psycopg://user:pw@host:5432/bt_monitor
+psycopg[binary]==3.2.3
 
 # --- exports ---
 openpyxl==3.1.5             # Excel export

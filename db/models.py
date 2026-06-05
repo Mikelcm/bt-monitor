@@ -14,6 +14,7 @@ BT_MONITOR_DB_URL env var (e.g. postgresql+psycopg://user:pw@host/db).
 """
 from __future__ import annotations
 
+import logging
 import os
 from datetime import datetime, timezone
 from pathlib import Path
@@ -35,6 +36,7 @@ from sqlalchemy import (
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship, sessionmaker, Session
 
+log = logging.getLogger("db.models")
 
 _HERE = Path(__file__).resolve().parent.parent
 _DEFAULT_DB_PATH = _HERE / "data" / "bt_monitor.db"
@@ -228,17 +230,32 @@ def get_session() -> Session:
 
 
 def init_db() -> None:
-    """Create all tables if they don't exist.
+    """Ensure the schema exists.
 
-    Idempotent AND cheap: after the first successful call it's a no-op, so it's
-    safe to call from hot paths without re-running create_all every probe (#10).
-    Call reset_schema_ready() in tests that recreate the engine.
+    Two regimes (audit DB recommendation):
+      * SQLite (dev/test default) — create_all. Zero-friction local runs and the
+        pytest suite; no migration tooling needed.
+      * Non-SQLite (Postgres in production) — schema is owned by **Alembic**
+        (`alembic upgrade head`, run on deploy). We do NOT create_all here, so
+        the migration history stays the single source of schema truth. init_db()
+        becomes a no-op; if tables are missing the app will error loudly, which
+        is the correct signal that migrations weren't applied.
+
+    Idempotent AND cheap: after the first call it's a no-op, so it's safe to call
+    from hot paths without re-running per probe (#10). Tests that recreate the
+    engine call reset_schema_ready().
     """
     global _schema_ready
     if _schema_ready:
         return
     engine = get_engine()
-    Base.metadata.create_all(engine)
+    if engine.dialect.name == "sqlite":
+        Base.metadata.create_all(engine)
+    else:
+        log.info(
+            "init_db: non-SQLite backend (%s) — schema managed by Alembic; "
+            "run `alembic upgrade head` on deploy.", engine.dialect.name,
+        )
     _schema_ready = True
 
 

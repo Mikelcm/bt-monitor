@@ -76,14 +76,22 @@ See commits `4d67abf` → `a676d02` on `main`.
 
 ## 4. What's next (immediate, mostly infra)
 
-1. **Flip to PostgreSQL for real.** The code, models, pool config, and
-   `docker-compose.yml` are ready. Needs a Postgres instance, then
-   `BT_MONITOR_DB_URL=postgresql+psycopg://…`. Recommended next step:
-   add **Alembic** migrations instead of `create_all` before going to prod.
+1. **PostgreSQL + Alembic — DONE (2026-06-05).** Schema is now versioned with
+   **Alembic** (`alembic/versions/…_initial_schema.py`). Regime:
+   - **SQLite** (dev/test default): `init_db()` still does `create_all` — zero
+     friction, 35 tests unchanged.
+   - **Postgres** (production): `init_db()` is a no-op; the schema is owned by
+     Alembic. The Docker entrypoint runs `alembic upgrade head` before uvicorn.
+   CI runs `alembic upgrade head` + `alembic check` (fails if a model change has
+   no matching migration). To go live: set
+   `BT_MONITOR_DB_URL=postgresql+psycopg://…` and the migrations apply on deploy.
+   _Note: dev/test still default to SQLite (no Docker on the dev box). This is a
+   deliberate deviation from the audit's "eliminate SQLite even in dev"; flipping
+   the default is a one-liner + a Postgres service in CI when BT provides infra._
 2. **Verify CI on GitHub.** The workflow runs on the next push — confirm green
-   in the Actions tab.
+   in the Actions tab (now includes the migration check).
 3. **Build & smoke-test the Docker image** on a machine with Docker (not done
-   locally — no Docker on the dev box).
+   locally — no Docker on the dev box). Entrypoint now applies migrations first.
 4. **Secure BT access.** Akamai blocks external automation; pick one with BT:
    (a) allowlist a dedicated User-Agent, (b) run inside BT's network, or
    (c) get a staging URL (also unblocks real form-submission testing).
@@ -118,8 +126,10 @@ From most to least immediately useful for the BT sale:
 - **Auth is Basic.** Fine behind a TLS reverse proxy; a future **login + RBAC**
   (admin/auditor/viewer) + an **audit log of who changed settings** would be
   expected for a bank.
-- **Schema is `create_all`.** Move to **Alembic** before production so schema
-  changes are versioned.
+- ~~**Schema is `create_all`.** Move to **Alembic**.~~ **DONE (2026-06-05):**
+  Alembic owns the Postgres schema; SQLite dev keeps `create_all`. Workflow:
+  `alembic revision --autogenerate -m "..."` to add a migration,
+  `alembic upgrade head` to apply. CI guards with `alembic check`.
 - **Live alert vs incident alert** can double-notify on uptime state changes
   (live `AlertHub` + incident hub). Consider routing all alerts through the
   incident hub only.

@@ -10,16 +10,17 @@ ENV PYTHONUNBUFFERED=1 \
 
 WORKDIR /app
 
-# 1) Python deps first (cached layer).
+# 1) Python deps first (cached layer). psycopg + alembic are pinned in
+#    requirements.txt, so no extra install step is needed.
 COPY requirements.txt .
-RUN pip install --upgrade pip && pip install -r requirements.txt \
-    && pip install "psycopg[binary]>=3.2"   # Postgres driver for production
+RUN pip install --upgrade pip && pip install -r requirements.txt
 
 # 2) Chromium + its OS libraries for patchright (the deep scan needs a browser).
 RUN patchright install --with-deps chromium
 
 # 3) App code.
 COPY . .
+RUN chmod +x docker-entrypoint.sh
 
 # 4) Non-root.
 RUN useradd --create-home --uid 10001 appuser \
@@ -34,4 +35,5 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
 
 # Bind 0.0.0.0 inside the container; a reverse proxy / compose network fronts it.
 ENV BT_MONITOR_HOST=0.0.0.0 BT_MONITOR_PORT=8000
-CMD ["python", "-m", "uvicorn", "dashboard.app:app", "--host", "0.0.0.0", "--port", "8000"]
+# Entrypoint applies Alembic migrations before starting uvicorn.
+ENTRYPOINT ["./docker-entrypoint.sh"]
