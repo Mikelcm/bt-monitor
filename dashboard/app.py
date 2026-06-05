@@ -34,6 +34,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import os
 import sys
 from contextlib import asynccontextmanager
@@ -84,6 +85,13 @@ _watcher_task: asyncio.Task | None = None
 _pages_task: asyncio.Task | None = None
 _scheduler_task: asyncio.Task | None = None
 _scheduler_stop = asyncio.Event()
+
+# #5 — single-flight + cooldown for the (expensive) deep scan. Prevents a flood
+# of /run clicks (or a CSRF/replay) from spawning many headless-browser scans
+# and exhausting the host. Min interval between starts is env-tunable.
+_scan_lock = asyncio.Lock()
+_scan_in_flight = False
+_last_scan_start = 0.0
 
 
 def _env_float(name: str, default: float) -> float:
@@ -139,8 +147,11 @@ async def _scheduler_loop():
                 should_run = False
 
             if should_run:
-                print(f"[scheduler] firing deep scan (last was >{SCAN_INTERVAL_H}h ago)", flush=True)
-                asyncio.create_task(_run_subprocess())
+                started, reason = await _try_start_scan()
+                if started:
+                    print(f"[scheduler] firing deep scan (last was >{SCAN_INTERVAL_H}h ago)", flush=True)
+                else:
+                    print(f"[scheduler] skip scan: {reason}", flush=True)
 
             # Prune uptime_checks periodically.
             now_ts = now.timestamp()
@@ -227,6 +238,36 @@ async def _basic_auth(request, call_next):
         "Unauthorized", status_code=401,
         headers={"WWW-Authenticate": 'Basic realm="BT Monitor"'},
     )
+
+
+# ---------------------------------------------------------------------
+# #4 CSRF — same-origin check on state-changing requests. The dashboard's
+# own <form>s post same-origin (Origin/Referer match the Host). A cross-site
+# request forged in a victim's browser carries a foreign Origin/Referer, which
+# we reject. Requests with neither header (curl, server-to-server) are allowed
+# — they aren't the ambient-credential CSRF vector this defends against.
+# ---------------------------------------------------------------------
+from urllib.parse import urlparse as _urlparse
+
+_CSRF_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
+
+
+@app.middleware("http")
+async def _csrf_same_origin(request, call_next):
+    if request.method in _CSRF_METHODS:
+        host = request.headers.get("host", "")
+        origin = request.headers.get("origin")
+        referer = request.headers.get("referer")
+        src = origin or referer
+        if src:
+            src_netloc = _urlparse(src).netloc
+            if src_netloc and host and src_netloc != host:
+                logging.getLogger("dashboard").warning(
+                    "CSRF blocked: %s %s origin/referer=%s host=%s",
+                    request.method, request.url.path, src_netloc, host,
+                )
+                return _Response("CSRF check failed", status_code=403)
+    return await call_next(request)
 
 
 @app.get("/healthz")
@@ -936,6 +977,7 @@ async def export_pdf(target_url: str | None = None):
 # Mutations: run / target / clear / live targets
 # ---------------------------------------------------------------------
 async def _run_subprocess():
+    global _scan_in_flight
     log_path = DATA / "_run.log"
     log_path.parent.mkdir(parents=True, exist_ok=True)
     log_file = log_path.open("w", encoding="utf-8")
@@ -950,14 +992,34 @@ async def _run_subprocess():
         await proc.wait()
     finally:
         log_file.close()
+        _scan_in_flight = False
+
+
+async def _try_start_scan() -> tuple[bool, str]:
+    """Start a deep scan if allowed. Returns (started, reason).
+
+    Single-flight (one scan at a time) + cooldown (min seconds between starts),
+    guarded by an asyncio lock so concurrent /run requests can't race past the
+    check. reason ∈ {"started","already_running","cooldown"} (#5)."""
+    global _scan_in_flight, _last_scan_start
+    min_interval = _env_float("BT_MONITOR_SCAN_MIN_INTERVAL_S", 60.0)
+    async with _scan_lock:
+        if _scan_in_flight or read_state().get("status") == "running":
+            return False, "already_running"
+        now = asyncio.get_event_loop().time()
+        if _last_scan_start and (now - _last_scan_start) < min_interval:
+            return False, "cooldown"
+        _scan_in_flight = True
+        _last_scan_start = now
+        asyncio.create_task(_run_subprocess())
+        return True, "started"
 
 
 @app.post("/run")
 async def kick_run():
-    state = read_state()
-    if state.get("status") == "running":
-        return RedirectResponse(url="/?already_running=1", status_code=303)
-    asyncio.create_task(_run_subprocess())
+    started, reason = await _try_start_scan()
+    if not started:
+        return RedirectResponse(url=f"/?scan={reason}", status_code=303)
     return RedirectResponse(url="/", status_code=303)
 
 
@@ -968,9 +1030,7 @@ async def change_target(url: str = Form(...), run_after: str | None = Form(None)
         return RedirectResponse(url="/settings?error=invalid_url", status_code=303)
     _watcher.set_targets(all_watched_targets())
     if run_after:
-        state = read_state()
-        if state.get("status") != "running":
-            asyncio.create_task(_run_subprocess())
+        await _try_start_scan()
         return RedirectResponse(url="/", status_code=303)
     return RedirectResponse(url="/settings?changed=1", status_code=303)
 
