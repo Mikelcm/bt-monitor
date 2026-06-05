@@ -44,6 +44,9 @@ from checks.seo import main as run_seo
 from checks.console_errors import main as run_console
 from db.persist import persist_run
 from monitoring.incident_alerts import hub as alert_hub
+from utils.logging_setup import configure_logging
+
+configure_logging()  # #22 — uniform, env-driven logging
 
 DATA = ROOT / DATA_DIR
 STATE_FILE = DATA / "_run_state.json"

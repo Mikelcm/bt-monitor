@@ -96,22 +96,26 @@ def doc_extension(url: str) -> str:
 
 
 def collect_doc_urls_from_reports() -> dict[str, list[str]]:
-    """Look at the links_report.json to find every doc URL and which pages it was on."""
+    """Map every document URL → the page(s) that link it, from links_report.json.
+
+    Uses the real page→doc mapping persisted by checks/links.py (#17). Falls back
+    to the old all_probes walk only if an older report lacks doc_references."""
     links_path = ROOT / DATA_DIR / "links_report.json"
     if not links_path.exists():
         return {}
     data = json.loads(links_path.read_text(encoding="utf-8"))
-    # The links report has per_page summaries but no per-link-per-page mapping for ALL probes.
-    # Use the all_probes list and cross-reference per_page.links via a re-extract.
-    # Easier: re-extract by walking probes and matching pages.
+
+    # Preferred: the real mapping (which pages reference each document).
+    refs = data.get("doc_references")
+    if isinstance(refs, dict) and refs:
+        return {url: list(pages) for url, pages in refs.items()}
+
+    # Fallback for legacy reports without doc_references.
     doc_map: dict[str, list[str]] = {}
-    # We saved per-page link counts but not the actual links per page in links_report.
-    # Pragma: in the current links.py we did NOT persist per-page links. To make this
-    # check standalone-useful, we just look at all unique probe URLs.
     for probe in data.get("all_probes", []):
         url = probe["url"]
         if doc_extension(url):
-            doc_map.setdefault(url, []).append("(from links report)")
+            doc_map.setdefault(url, []).append("(referencing page unknown — legacy report)")
     return doc_map
 
 

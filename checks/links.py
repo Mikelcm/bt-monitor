@@ -151,6 +151,17 @@ async def probe_url(client: httpx.AsyncClient, url: str, sem: asyncio.Semaphore)
             return probe
 
 
+# Document extensions whose links we map page→file for the doc-leak scanner (#17).
+_DOC_EXTS = (".pdf", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx", ".rtf")
+
+
+def _is_doc_url(url: str) -> bool:
+    try:
+        return urlparse(url).path.lower().endswith(_DOC_EXTS)
+    except Exception:
+        return False
+
+
 async def check_broken_links(page_urls: list[str]) -> dict:
     """Top-level: fetch each page, extract links, probe every unique link."""
     per_page: list[PageLinks] = []
@@ -182,6 +193,16 @@ async def check_broken_links(page_urls: list[str]) -> dict:
     broken = [p for p in probes if p.is_broken()]
     redirects = [p for p in probes if p.redirected and not p.is_broken()]
 
+    # #17 — persist which page(s) link each document, so the doc-leak scanner
+    # can tell the user where a leaked file is referenced (no more placeholder).
+    doc_references: dict[str, list[str]] = {}
+    for pl in per_page:
+        for link in pl.links:
+            if _is_doc_url(link):
+                refs = doc_references.setdefault(link, [])
+                if pl.page_url not in refs:
+                    refs.append(pl.page_url)
+
     print(f"[probe] done: {len(probes)} checked, {len(broken)} broken, {len(redirects)} redirects")
 
     return {
@@ -195,6 +216,7 @@ async def check_broken_links(page_urls: list[str]) -> dict:
             {"page_url": p.page_url, "links_found": p.links_found, "fetch_error": p.fetch_error}
             for p in per_page
         ],
+        "doc_references": doc_references,
         "broken": [p.__dict__ for p in broken],
         "redirects": [p.__dict__ for p in redirects],
         "all_probes": [p.__dict__ for p in probes],

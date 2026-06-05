@@ -291,6 +291,26 @@ class IncidentAlertHub:
         return f"{base.rstrip('/')}/incidents?status=open&category={alert.category}"
 
     def _send_teams(self, client: httpx.Client, url: str, alert: IncidentAlert) -> bool:
+        """POST the alert to Teams. Two payload formats:
+
+          BT_MONITOR_TEAMS_FORMAT=adaptive  → Adaptive Card wrapped for a Power
+              Automate "Workflows" webhook (the modern, supported path; the old
+              Office 365 connector / MessageCard is being retired by Microsoft).
+          BT_MONITOR_TEAMS_FORMAT=messagecard (default) → legacy MessageCard,
+              for existing Incoming-Webhook connectors still in use.
+        """
+        fmt = os.environ.get("BT_MONITOR_TEAMS_FORMAT", "messagecard").lower()
+        payload = (self._adaptive_payload(alert) if fmt == "adaptive"
+                   else self._messagecard_payload(alert))
+        try:
+            r = client.post(url, json=payload)
+            r.raise_for_status()
+            return True
+        except Exception as exc:
+            log.warning("Teams webhook failed (format=%s): %r", fmt, exc)
+            return False
+
+    def _messagecard_payload(self, alert: IncidentAlert) -> dict:
         link = self._dashboard_link(alert)
         card = {
             "@type": "MessageCard",
@@ -314,13 +334,42 @@ class IncidentAlertHub:
                 "name": "Open dashboard",
                 "targets": [{"os": "default", "uri": link}],
             }]
-        try:
-            r = client.post(url, json=card)
-            r.raise_for_status()
-            return True
-        except Exception as exc:
-            log.warning("Teams webhook failed: %r", exc)
-            return False
+        return card
+
+    def _adaptive_payload(self, alert: IncidentAlert) -> dict:
+        """Adaptive Card inside the Power Automate Workflows message envelope."""
+        link = self._dashboard_link(alert)
+        facts = [
+            {"title": "Target",   "value": alert.target_url},
+            {"title": "Category", "value": alert.category},
+            {"title": "Severity", "value": alert.severity},
+            {"title": "Page",     "value": alert.page_url or "—"},
+            {"title": "Run",      "value": f"#{alert.run_id}"},
+        ]
+        body = [
+            {"type": "TextBlock", "size": "Medium", "weight": "Bolder",
+             "text": alert.title, "wrap": True},
+            {"type": "TextBlock", "text": alert.summary, "wrap": True},
+            {"type": "FactSet", "facts": facts},
+        ]
+        actions = []
+        if link:
+            actions.append({"type": "Action.OpenUrl", "title": "Open dashboard", "url": link})
+        card = {
+            "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
+            "type": "AdaptiveCard",
+            "version": "1.4",
+            "body": body,
+        }
+        if actions:
+            card["actions"] = actions
+        return {
+            "type": "message",
+            "attachments": [{
+                "contentType": "application/vnd.microsoft.card.adaptive",
+                "content": card,
+            }],
+        }
 
 # Process-singleton — both runner and dashboard import this name.
 hub = IncidentAlertHub()

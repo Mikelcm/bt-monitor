@@ -71,6 +71,9 @@ from monitoring.uptime_persist import (
 from db.models import Incident, IncidentObservation, Run, UptimeCheck, get_session, init_db
 from dashboard.exports import build_incidents_csv, build_incidents_xlsx, build_audit_pdf
 from utils.time_ro import format_ro, format_ro_short, humanize_duration, to_ro
+from utils.logging_setup import configure_logging
+
+configure_logging()  # #22 — uniform, env-driven logging for the whole process
 
 DATA = ROOT / DATA_DIR
 DASH_DIR = ROOT / "dashboard"
@@ -181,15 +184,23 @@ async def lifespan(app: FastAPI):
     try:
         yield
     finally:
+        # #16 — graceful shutdown: signal loops to stop, await them, then
+        # hard-cancel any that overran and await the cancellation so no task
+        # is left dangling (clean for tests + reloads).
         _scheduler_stop.set()
         await _watcher.stop()
         await _pages_watcher.stop()
         for task in (_watcher_task, _pages_task, _scheduler_task):
-            if task:
+            if not task:
+                continue
+            try:
+                await asyncio.wait_for(asyncio.shield(task), timeout=5)
+            except asyncio.TimeoutError:
+                task.cancel()
                 try:
-                    await asyncio.wait_for(task, timeout=5)
-                except asyncio.TimeoutError:
-                    task.cancel()
+                    await task
+                except (asyncio.CancelledError, Exception):
+                    pass
 
 
 app = FastAPI(title="BT Monitor Dashboard", lifespan=lifespan)
