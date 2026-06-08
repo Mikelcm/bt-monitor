@@ -38,7 +38,7 @@ import logging
 import os
 import sys
 from contextlib import asynccontextmanager
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from pathlib import Path
 
 from fastapi import FastAPI, Form, Request
@@ -70,7 +70,7 @@ from monitoring.uptime_persist import (
 )
 from db.models import Alert, Incident, IncidentObservation, Run, UptimeCheck, get_session, init_db
 from dashboard.exports import build_incidents_csv, build_incidents_xlsx, build_audit_pdf
-from utils.time_ro import format_ro, format_ro_short, humanize_duration, to_ro
+from utils.time_ro import format_ro, format_ro_short, humanize_duration
 from utils.logging_setup import configure_logging
 
 configure_logging()  # #22 — uniform, env-driven logging for the whole process
@@ -95,6 +95,7 @@ _scheduler_stop = asyncio.Event()
 _scan_lock = asyncio.Lock()
 _scan_in_flight = False
 _last_scan_start = 0.0
+_scan_proc: asyncio.subprocess.Process | None = None   # running deep-scan subprocess (for cancel)
 
 
 def _env_float(name: str, default: float) -> float:
@@ -1231,23 +1232,71 @@ async def export_pdf(target_url: str | None = None):
 # ---------------------------------------------------------------------
 # Mutations: run / target / clear / live targets
 # ---------------------------------------------------------------------
+_SCAN_TIMEOUT_S = _env_float("BT_MONITOR_SCAN_TIMEOUT_S", 900.0)   # hard cap: 15 min
+
+
+def _kill_proc(proc: asyncio.subprocess.Process) -> None:
+    """Kill the scan subprocess AND its children (Chromium) — cross-platform."""
+    if proc is None or proc.returncode is not None:
+        return
+    try:
+        if sys.platform == "win32":
+            import subprocess
+            subprocess.run(["taskkill", "/F", "/T", "/PID", str(proc.pid)],
+                           capture_output=True)
+        else:
+            proc.terminate()
+    except Exception:
+        try:
+            proc.kill()
+        except Exception:
+            pass
+
+
+def _finalize_run_state(status: str, note: str | None = None) -> None:
+    """If the run-state file is still 'running' (crash / kill / timeout), mark it
+    terminal so the dashboard stops polling forever. Best-effort, no-op if the
+    runner already wrote a final status."""
+    try:
+        st = read_state()
+        if st.get("status") == "running":
+            st["status"] = status
+            st["current_step"] = None
+            st["finished_at"] = datetime.now(timezone.utc).isoformat()
+            if note:
+                st.setdefault("errors", []).append({"step": "runner", "error": note})
+            (DATA / "_run_state.json").write_text(json.dumps(st, indent=2), encoding="utf-8")
+    except Exception:
+        pass
+
+
 async def _run_subprocess():
-    global _scan_in_flight
+    global _scan_in_flight, _scan_proc
     log_path = DATA / "_run.log"
     log_path.parent.mkdir(parents=True, exist_ok=True)
     log_file = log_path.open("w", encoding="utf-8")
     env = os.environ.copy()
     env.setdefault("PYTHONIOENCODING", "utf-8")
+    proc = None
     try:
         proc = await asyncio.create_subprocess_exec(
             sys.executable, str(ROOT / "runner.py"),
             cwd=str(ROOT), env=env,
             stdout=log_file, stderr=asyncio.subprocess.STDOUT,
         )
-        await proc.wait()
+        _scan_proc = proc
+        try:
+            await asyncio.wait_for(proc.wait(), timeout=_SCAN_TIMEOUT_S)
+        except asyncio.TimeoutError:
+            print(f"[scan] timeout after {_SCAN_TIMEOUT_S:.0f}s — terminating", flush=True)
+            _kill_proc(proc)
+            _finalize_run_state("cancelled", f"timeout după {int(_SCAN_TIMEOUT_S)}s")
     finally:
         log_file.close()
         _scan_in_flight = False
+        _scan_proc = None
+        # Crash / hard-kill safety net: never leave the UI stuck on "running".
+        _finalize_run_state("failed", "procesul de scan s-a oprit neașteptat")
 
 
 async def _try_start_scan() -> tuple[bool, str]:
@@ -1278,11 +1327,24 @@ async def kick_run():
     return RedirectResponse(url="/", status_code=303)
 
 
+@app.post("/run/cancel")
+async def cancel_run():
+    """Stop a running deep scan (kills the subprocess + its browser children)."""
+    global _scan_proc
+    proc = _scan_proc
+    if proc is not None and proc.returncode is None:
+        _kill_proc(proc)
+        _finalize_run_state("cancelled", "anulat de utilizator")
+        return RedirectResponse(url="/?scan=cancelled", status_code=303)
+    _finalize_run_state("cancelled", "anulat de utilizator")
+    return RedirectResponse(url="/?scan=not_running", status_code=303)
+
+
 @app.post("/target")
 async def change_target(url: str = Form(...), run_after: str | None = Form(None)):
-    ok = set_base_url(url)
+    ok, reason = set_base_url(url)
     if not ok:
-        return RedirectResponse(url="/settings?error=invalid_url", status_code=303)
+        return RedirectResponse(url=f"/settings?error={_quote(reason)}", status_code=303)
     _watcher.set_targets(all_watched_targets())
     if run_after:
         await _try_start_scan()

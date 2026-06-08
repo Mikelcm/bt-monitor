@@ -14,9 +14,9 @@ from __future__ import annotations
 import logging
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import and_, delete, select, func as sa_func
+from sqlalchemy import delete, select, func as sa_func
 
-from db.models import Incident, IncidentObservation, Run, UptimeCheck, get_session, init_db
+from db.models import Incident, UptimeCheck, get_session
 from monitoring.incident_alerts import IncidentAlert, hub as alert_hub
 
 log = logging.getLogger("monitoring.uptime_persist")

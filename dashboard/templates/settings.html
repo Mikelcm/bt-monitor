@@ -9,8 +9,8 @@
   {% if changed_flag %}
   <div class="banner ok"><div class="banner-ico">{{ icon('check', 18) }}</div><div class="banner-body"><div class="banner-title">Țintă salvată</div><div class="banner-text">Watcher-ul a fost re-țintit: <span class="mono">{{ base_url }}</span></div></div></div>
   {% endif %}
-  {% if error_flag == 'invalid_url' %}
-  <div class="banner"><div class="banner-ico">{{ icon('x', 18) }}</div><div class="banner-body"><div class="banner-title">URL invalid sau blocat</div><div class="banner-text">Verifică formatul și că host-ul e permis (anti-SSRF).</div></div></div>
+  {% if error_flag %}
+  <div class="banner"><div class="banner-ico">{{ icon('x', 18) }}</div><div class="banner-body"><div class="banner-title">Ținta nu a putut fi setată</div><div class="banner-text">{{ error_flag }}</div></div></div>
   {% endif %}
 
   <div class="stack">

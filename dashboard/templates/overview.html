@@ -4,10 +4,16 @@
 {% block page_title %}Privire generală{% endblock %}
 {% block page_sub %}<div class="page-sub">Stare site, ultimul scan și incidentele prioritare pentru {{ base_url }}.</div>{% endblock %}
 {% block page_actions %}
-  {% if not scan_running and (not auth_enabled or request.session.get('role') != 'viewer') %}
-  <form method="post" action="/run" style="margin:0">
-    <button type="submit" class="btn btn-primary">{{ icon('play', 14) }} Rulează scan complet</button>
-  </form>
+  {% if not auth_enabled or request.session.get('role') != 'viewer' %}
+    {% if scan_running %}
+    <form method="post" action="/run/cancel" style="margin:0">
+      <button type="submit" class="btn btn-danger">{{ icon('x', 14) }} Oprește scanul</button>
+    </form>
+    {% else %}
+    <form method="post" action="/run" style="margin:0">
+      <button type="submit" class="btn btn-primary">{{ icon('play', 14) }} Rulează scan complet</button>
+    </form>
+    {% endif %}
   {% endif %}
 {% endblock %}
 
@@ -31,6 +37,12 @@
       <strong id="sp-step">{{ run_state.current_step or 'pornește…' }}</strong>
       <span class="muted" id="sp-sub">· pas {{ (run_state.completed_steps|length) + 1 }} din 9</span>
     </div>
+    <div class="spacer"></div>
+    {% if not auth_enabled or request.session.get('role') != 'viewer' %}
+    <form method="post" action="/run/cancel" style="margin:0">
+      <button type="submit" class="btn btn-danger btn-sm">{{ icon('x', 13) }} Oprește</button>
+    </form>
+    {% endif %}
   </div>
   {% endif %}
 

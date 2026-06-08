@@ -32,7 +32,7 @@ from bs4 import BeautifulSoup
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
-from config import BASE_URL, SITEMAP_URL, USER_AGENT, CRAWL_TIMEOUT_MS, DATA_DIR
+from config import BASE_URL, SITEMAP_URL, USER_AGENT, CRAWL_TIMEOUT_MS, DATA_DIR, MAX_SCAN_PAGES
 from helpers.cookies import dismiss_cookies
 
 try:
@@ -54,13 +54,19 @@ class CrawlResult:
     errors: list[dict] = field(default_factory=list)
 
     def to_json(self) -> dict:
+        all_pages = sorted(self.page_urls)
+        capped = len(all_pages) > MAX_SCAN_PAGES
+        pages = all_pages[:MAX_SCAN_PAGES] if capped else all_pages
         return {
             "fetched_at": datetime.now(timezone.utc).isoformat(),
             "base_url": BASE_URL,
             "discovery_method": self.discovery_method,
             "sitemap_urls_fetched": self.sitemap_urls_fetched,
-            "page_count": len(self.page_urls),
-            "page_urls": sorted(self.page_urls),
+            "page_count": len(pages),
+            "total_discovered": len(all_pages),
+            "capped": capped,
+            "max_scan_pages": MAX_SCAN_PAGES,
+            "page_urls": pages,
             "errors": self.errors,
         }
 

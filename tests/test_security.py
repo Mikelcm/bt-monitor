@@ -1,7 +1,6 @@
 """Security regression tests: SSRF (#2), CSV/formula injection (#3),
 Basic Auth (#1), CSRF same-origin (#4)."""
 import base64
-import os
 
 import pytest
 from fastapi.testclient import TestClient

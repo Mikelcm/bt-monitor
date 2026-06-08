@@ -28,7 +28,7 @@ from db.models import Incident, Run, UptimeCheck, get_session, init_db
 from monitoring.incident_alerts import hub as alert_hub
 from monitoring.uptime_persist import uptime_percent
 from utils.text import strip_diacritics as _ascii
-from utils.time_ro import format_ro, humanize_duration, to_ro
+from utils.time_ro import format_ro, humanize_duration
 
 
 UPTIME_CATEGORIES = ("site_down", "site_slow", "page_down", "page_slow")

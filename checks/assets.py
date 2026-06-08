@@ -14,7 +14,6 @@ from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from urllib.parse import urlparse
 
 from patchright.async_api import async_playwright
 

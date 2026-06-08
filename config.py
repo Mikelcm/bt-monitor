@@ -106,38 +106,60 @@ def get_base_url() -> str:
     return DEFAULT_BASE_URL.rstrip("/")
 
 
-def _validate_url(url: str) -> str | None:
-    """Return a clean URL or None if invalid/unsafe. Adds https:// if missing.
-    Rejects empty strings, URLs without a hostname, and SSRF-unsafe hosts (#2)."""
+def _human_reason(reason: str, host: str) -> str:
+    """Translate an SSRF block reason into a clear Romanian message."""
+    if reason.startswith("host_not_in_allowlist"):
+        allow = ", ".join(_allowed_hosts())
+        return (f"Host-ul „{host}” nu e în lista permisă. "
+                f"Permise acum: {allow}. Modifică BT_MONITOR_ALLOWED_HOSTS sau "
+                f"golește variabila ca să permiți orice site.")
+    if reason.startswith("resolves_to_internal_ip"):
+        return (f"Ținta „{host}” indică un IP intern/privat — blocată de protecția "
+                f"SSRF. Pentru ținte locale (ex. fixture pe 127.0.0.1) pornește cu "
+                f"BT_MONITOR_ALLOW_PRIVATE_TARGETS=true.")
+    if reason == "empty_host":
+        return "URL fără host valid."
+    return f"Țintă respinsă de protecția SSRF ({reason})."
+
+
+def validate_target(url: str) -> tuple[str | None, str]:
+    """Return (clean_url, '') on success, or (None, human_reason) on rejection.
+    Adds https:// if missing; enforces the SSRF host policy (#2)."""
     url = (url or "").strip().rstrip("/")
     if not url:
-        return None
+        return None, "URL gol."
     if not url.startswith(("http://", "https://")):
         url = "https://" + url
     try:
         p = urlparse(url)
         if not p.netloc:
-            return None
+            return None, "URL fără host valid."
         host = p.hostname or ""
     except Exception:
-        return None
+        return None, "URL invalid."
     reason = _host_block_reason(host)
     if reason:
         log.warning("target URL rejected (SSRF guard): %s — %s", url, reason)
-        return None
-    return url
+        return None, _human_reason(reason, host)
+    return url, ""
 
 
-def set_base_url(url: str) -> bool:
-    """Persist a new target URL. Returns True on success, False on invalid input.
+def _validate_url(url: str) -> str | None:
+    """Back-compat helper (used by tests + live-target gate). URL or None."""
+    clean, _ = validate_target(url)
+    return clean
+
+
+def set_base_url(url: str) -> tuple[bool, str]:
+    """Persist a new target URL. Returns (ok, message).
 
     Atomic write (write to temp file then rename) to avoid corruption if the
     process dies mid-write. Stamps changed_at so the UI can show 'last changed'.
     """
-    clean = _validate_url(url)
+    clean, reason = validate_target(url)
     if clean is None:
-        log.warning("set_base_url rejected invalid URL: %r", url)
-        return False
+        log.warning("set_base_url rejected URL %r: %s", url, reason)
+        return False, reason
     _OVERRIDE_FILE.parent.mkdir(parents=True, exist_ok=True)
     payload = {
         "base_url": clean,
@@ -148,7 +170,7 @@ def set_base_url(url: str) -> bool:
     tmp.replace(_OVERRIDE_FILE)
     _push_recent(clean)
     log.info("base_url -> %s", clean)
-    return True
+    return True, ""
 
 
 def get_target_changed_at() -> str | None:
@@ -242,5 +264,18 @@ USER_AGENT = (
     "Chrome/126.0.0.0 Safari/537.36"
 )
 
-CRAWL_TIMEOUT_MS = 30_000
-SLOW_PAGE_THRESHOLD_MS = 3_000
+def _env_int(name: str, default: int) -> int:
+    try:
+        return int(os.environ.get(name, default))
+    except (TypeError, ValueError):
+        return default
+
+
+# Per-page navigation timeout. 20s is plenty for a healthy page; lower than the
+# old 30s so one stuck page can't stall the whole scan for half a minute.
+CRAWL_TIMEOUT_MS = _env_int("BT_MONITOR_CRAWL_TIMEOUT_MS", 20_000)
+SLOW_PAGE_THRESHOLD_MS = _env_int("BT_MONITOR_SLOW_PAGE_THRESHOLD_MS", 3_000)
+# Hard cap on how many discovered pages the deep scan will process. Each page is
+# loaded in a browser by ~7 checks, so an unbounded sitemap (hundreds of pages)
+# turns a scan into an hour-long job. 40 keeps a full scan to a few minutes.
+MAX_SCAN_PAGES = _env_int("BT_MONITOR_MAX_SCAN_PAGES", 40)

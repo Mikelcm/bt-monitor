@@ -110,12 +110,6 @@ def list_users() -> list[_UserSnapshot]:
         return [_snapshot(u) for u in rows]
 
 
-def user_count() -> int:
-    init_db()
-    with get_session() as session:
-        return session.scalar(select(sa_func.count(User.id))) or 0
-
-
 def create_user(username: str, password: str, role: str) -> tuple[bool, str]:
     username = _clean_username(username)
     if not username:
