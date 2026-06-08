@@ -21,6 +21,35 @@ from urllib.parse import urlparse
 
 log = logging.getLogger("config")
 
+
+# ---------------------------------------------------------------------
+# .env auto-loader (so `uvicorn ...` picks up a local .env with no extra
+# tooling). Real environment variables always win — .env only fills gaps.
+# This runs at import time, before any os.environ reads below.
+# ---------------------------------------------------------------------
+def _load_dotenv() -> None:
+    # Tests set this so the suite runs against a controlled env, not a dev .env.
+    if os.environ.get("BT_MONITOR_SKIP_DOTENV"):
+        return
+    env_path = Path(__file__).resolve().parent / ".env"
+    if not env_path.exists():
+        return
+    try:
+        for raw in env_path.read_text(encoding="utf-8").splitlines():
+            line = raw.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, _, val = line.partition("=")
+            key = key.strip()
+            val = val.strip().strip('"').strip("'")
+            if key:
+                os.environ.setdefault(key, val)   # don't override real env
+    except Exception:
+        pass
+
+
+_load_dotenv()
+
 # ---------------------------------------------------------------------
 # SSRF protection (#2)
 # ---------------------------------------------------------------------

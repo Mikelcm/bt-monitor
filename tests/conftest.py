@@ -7,6 +7,9 @@ import os
 import tempfile
 from pathlib import Path
 
+# Ignore any developer .env — tests must run against a controlled environment.
+os.environ["BT_MONITOR_SKIP_DOTENV"] = "1"
+
 # Isolated DB per test session (never touch the dev/prod DB).
 _TMP_DB = Path(tempfile.gettempdir()) / "bt_monitor_pytest.db"
 for suffix in ("", "-wal", "-shm"):
