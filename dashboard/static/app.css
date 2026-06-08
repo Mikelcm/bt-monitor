@@ -396,6 +396,24 @@ code, .mono { font-family: var(--mono); font-size: .88em; }
 .sevcard-note { font-size: 11px; color: var(--muted-2); margin-top: 1px; }
 
 /* ============================================================================
+   Welcome / onboarding (overview, first run)
+   ============================================================================ */
+.welcome { padding: 28px 30px; background: linear-gradient(135deg, #ffffff 0%, var(--accent-soft) 220%); }
+.welcome-head { display: flex; align-items: flex-start; gap: 16px; margin-bottom: 22px; }
+.welcome-badge { width: 46px; height: 46px; border-radius: 12px; background: var(--accent); color: #fff; display: grid; place-items: center; flex-shrink: 0; }
+.welcome-title { font-size: 20px; font-weight: 750; letter-spacing: -0.02em; }
+.welcome-sub { font-size: 13.5px; color: var(--muted); margin-top: 4px; max-width: 640px; line-height: 1.5; }
+.welcome-tiers { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 16px; margin-bottom: 22px; }
+@media (max-width: 760px) { .welcome-tiers { grid-template-columns: 1fr; } }
+.welcome-tier { display: flex; gap: 13px; padding: 16px; border: 1px solid var(--border); border-radius: var(--r); background: var(--surface); }
+.wt-ico { width: 34px; height: 34px; border-radius: 9px; display: grid; place-items: center; flex-shrink: 0; }
+.wt-ico.t-live { background: var(--green-soft); color: var(--green-text); }
+.wt-ico.t-scan { background: var(--accent-soft); color: var(--accent-text); }
+.wt-name { font-size: 13.5px; font-weight: 650; }
+.wt-desc { font-size: 12.5px; color: var(--muted); margin-top: 3px; line-height: 1.5; }
+.welcome-cta { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+
+/* ============================================================================
    Checks breakdown grid (overview)
    ============================================================================ */
 .checks-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px,1fr)); gap: 10px; }

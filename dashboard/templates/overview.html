@@ -46,6 +46,62 @@
   </div>
   {% endif %}
 
+  {% if not has_data and not scan_running %}
+  {# ===================== WELCOME / ONBOARDING ===================== #}
+  <div class="card welcome">
+    <div class="welcome-head">
+      <div class="welcome-badge">{{ icon('shield-check', 24) }}</div>
+      <div>
+        <div class="welcome-title">Bun venit în BT Monitor</div>
+        <div class="welcome-sub">Monitorizăm sănătatea site-ului <strong>{{ base_url }}</strong> pe două niveluri. Pornește primul scan ca să vezi raportul complet.</div>
+      </div>
+    </div>
+    <div class="welcome-tiers">
+      <div class="welcome-tier">
+        <div class="wt-ico t-live">{{ icon('live', 18) }}</div>
+        <div>
+          <div class="wt-name">1 · Monitorizare live — automată</div>
+          <div class="wt-desc">Verifică la fiecare ~30s dacă site-ul răspunde. Rulează deja în fundal — te anunță în ~90s dacă pică ceva. Vezi tab-ul „Monitorizare live".</div>
+        </div>
+      </div>
+      <div class="welcome-tier">
+        <div class="wt-ico t-scan">{{ icon('search', 18) }}</div>
+        <div>
+          <div class="wt-name">2 · Scan complet — la cerere</div>
+          <div class="wt-desc">Analizează fiecare pagină: link-uri rupte, pagini lente, accesibilitate (WCAG), SEO, scurgeri de documente interne, erori JS.</div>
+        </div>
+      </div>
+    </div>
+    {% if not auth_enabled or request.session.get('role') != 'viewer' %}
+    <div class="welcome-cta">
+      <form method="post" action="/run" style="margin:0">
+        <button class="btn btn-primary" type="submit">{{ icon('play', 14) }} Rulează primul scan complet</button>
+      </form>
+      <span class="muted" style="font-size:12px">durează câteva minute · poți schimba ținta din <a href="/settings">Setări</a></span>
+    </div>
+    {% else %}
+    <div class="welcome-cta"><span class="muted" style="font-size:12.5px">Niciun scan rulat încă. Un administrator poate porni primul scan.</span></div>
+    {% endif %}
+  </div>
+
+  {# live status (relevant even before the first scan) #}
+  <div class="card" style="margin-top:16px">
+    <div class="card-head">
+      <div><div class="card-title">Stare live</div><div class="card-sub">Probe la ~30s · pornit automat</div></div>
+      <a href="/live" class="btn btn-ghost btn-sm">Detalii {{ icon('chevron-right', 14) }}</a>
+    </div>
+    <div class="card-body">
+      <div class="row" style="gap:11px">
+        <span class="led led-{{ live.state }}"></span>
+        <div style="flex:1">
+          <div style="font-weight:650;font-size:14px">{{ {'up':'Disponibil','slow':'Lent','down':'Indisponibil','unknown':'Verificare…'}[live.state] }}</div>
+          <div class="muted" style="font-size:12px">HTTP {{ live.last_status or '—' }} · {{ live.last_response_ms or '—' }} ms · {{ base_url }}</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  {% else %}
   {# ---------- HERO: donut + key stats ---------- #}
   {% set score = summary.health_score %}
   {% set tone = 'is-muted' %}
@@ -232,6 +288,7 @@
       </div>
     </div>
   </div>
+  {% endif %}
 
 {% endblock %}
 
